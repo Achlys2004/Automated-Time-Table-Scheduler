@@ -15,3 +15,5 @@ dist/
 .parcel-cache/
 .next/
 out/
+
+git commands/

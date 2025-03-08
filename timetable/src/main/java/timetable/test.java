@@ -1,4 +1,4 @@
-package timetable.timetable;
+package timetable;
 
 public class test {
     public static void main(String[] args) {

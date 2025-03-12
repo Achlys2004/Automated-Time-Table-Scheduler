@@ -1,19 +1,6 @@
-# Ignore node_modules
-node_modules/
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Dependency files
-package-lock.json
-yarn.lock
-
-# Build output
-dist/
-.parcel-cache/
-.next/
-out/
-
 gitcommands.txt
+
+.vscode/
+
+drawio/
+

@@ -8,7 +8,7 @@ import java.util.*;
 @Service
 public class TimetableService {
     private final TimetableRepository repository;
-
+    
     public TimetableService(TimetableRepository repository) {
         this.repository = repository;
     }

@@ -1,9 +1,13 @@
 package com.university.scheduler.controller;
 
+import com.university.scheduler.model.Subject;
 import com.university.scheduler.model.TimetableEntry;
+import com.university.scheduler.model.TimetableRequest;
+import com.university.scheduler.repository.SubjectRepository;
 import com.university.scheduler.service.TimetableService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -14,7 +18,7 @@ import java.util.Map;
 
 /**
  * REST Controller for timetable endpoints:
- * - POST /api/timetable/generate (generates default schedule)
+ * - POST /api/timetable/generate (generates timetable based on JSON input)
  * - GET /api/timetable (returns raw JSON array of TimetableEntry)
  * - GET /api/timetable/download/csv
  * - GET /api/timetable/download/excel
@@ -24,18 +28,37 @@ import java.util.Map;
 public class TimetableController {
 
     private final TimetableService timetableService;
+    private final SubjectRepository subjectRepository;
 
-    public TimetableController(TimetableService timetableService) {
+    public TimetableController(TimetableService timetableService, SubjectRepository subjectRepository) {
         this.timetableService = timetableService;
+        this.subjectRepository = subjectRepository;
     }
 
     /**
-     * Generates a default schedule and saves it in the DB.
+     * Generates a schedule based on the JSON request and saves it in the DB.
      */
     @PostMapping("/generate")
-    public String generateSchedule() {
-        timetableService.generateDefaultSchedule();
-        return "Default schedule generated successfully!";
+    public ResponseEntity<String> generateSchedule(@RequestBody TimetableRequest request) {
+        // Save subjects to the database if they don't exist
+        if (request.getSubjects() != null) {
+            for (Subject subject : request.getSubjects()) {
+                Subject existingSubject = subjectRepository.findByCode(subject.getCode());
+                if (existingSubject == null) {
+                    // Set default values if missing
+                    if (subject.getHoursPerWeek() == 0) {
+                        subject.setHoursPerWeek(3);
+                    }
+                    if (subject.getDepartment() == null) {
+                        subject.setDepartment(request.getDepartment());
+                    }
+                    subjectRepository.save(subject);
+                }
+            }
+        }
+
+        timetableService.generateSchedule(request);
+        return ResponseEntity.ok("Schedule generated successfully!");
     }
 
     /**
@@ -54,22 +77,19 @@ public class TimetableController {
         response.setContentType("text/csv");
         response.setHeader("Content-Disposition", "attachment; filename=\"timetable.csv\"");
 
-        // Prepare data
         String[] timeSlots = timetableService.getTimeSlots();
         String[] days = timetableService.getDays();
         Map<String, List<String>> dayToSlots = timetableService.buildDaySlotMatrix();
 
         try (PrintWriter writer = response.getWriter()) {
-            // Write header row
-            writer.print("Day -Time");
+            writer.print("Day - Time");
             for (String slot : timeSlots) {
                 writer.print("," + slot);
             }
             writer.println();
 
-            // For each day, write one row
             for (String day : days) {
-                writer.print(day); // First column is the day
+                writer.print(day);
                 List<String> slots = dayToSlots.get(day);
                 for (String subject : slots) {
                     writer.print("," + subject);
@@ -94,14 +114,12 @@ public class TimetableController {
         try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("Timetable");
 
-            // Create header row
             Row headerRow = sheet.createRow(0);
-            headerRow.createCell(0).setCellValue("Day -Time");
+            headerRow.createCell(0).setCellValue("Day - Time");
             for (int i = 0; i < timeSlots.length; i++) {
                 headerRow.createCell(i + 1).setCellValue(timeSlots[i]);
             }
 
-            // Create rows for each day
             for (int rowIndex = 0; rowIndex < days.length; rowIndex++) {
                 String day = days[rowIndex];
                 Row row = sheet.createRow(rowIndex + 1);
@@ -113,7 +131,6 @@ public class TimetableController {
                 }
             }
 
-            // Auto-size columns for readability
             for (int i = 0; i <= timeSlots.length; i++) {
                 sheet.autoSizeColumn(i);
             }

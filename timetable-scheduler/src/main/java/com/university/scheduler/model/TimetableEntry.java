@@ -1,19 +1,22 @@
 package com.university.scheduler.model;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 
 @Entity
+@Table(name = "timetable_entry")
 public class TimetableEntry {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
     private String day;
-    private int sessionNumber; // 1..11
+
+    @Column(nullable = false)
+    private int sessionNumber; // 1 to 8 (default number of time slots)
+
+    @Column(nullable = false)
     private String subject;
 
     public TimetableEntry() {
@@ -24,8 +27,6 @@ public class TimetableEntry {
         this.sessionNumber = sessionNumber;
         this.subject = subject;
     }
-
-    // Getters and setters
 
     public Long getId() {
         return id;
@@ -52,10 +53,24 @@ public class TimetableEntry {
     }
 
     public void setSessionNumber(int sessionNumber) {
+        // Here we assume the number of time slots is 8.
+        if (sessionNumber < 1 || sessionNumber > 9) {
+            throw new IllegalArgumentException("Session number must be between 1 and 8");
+        }
         this.sessionNumber = sessionNumber;
     }
 
     public void setSubject(String subject) {
         this.subject = subject;
+    }
+
+    @Override
+    public String toString() {
+        return "TimetableEntry{" +
+                "id=" + id +
+                ", day='" + day + '\'' +
+                ", sessionNumber=" + sessionNumber +
+                ", subject='" + subject + '\'' +
+                '}';
     }
 }

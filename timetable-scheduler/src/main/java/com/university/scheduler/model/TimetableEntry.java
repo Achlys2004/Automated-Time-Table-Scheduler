@@ -1,10 +1,9 @@
 package com.university.scheduler.model;
 
 import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
-
+import jakarta.persistence.Id;
 
 @Entity
 public class TimetableEntry {
@@ -14,11 +13,10 @@ public class TimetableEntry {
     private Long id;
 
     private String day;
-    private int sessionNumber;
+    private int sessionNumber; // 1..11
     private String subject;
 
     public TimetableEntry() {
-        // Default constructor required by JPA
     }
 
     public TimetableEntry(String day, int sessionNumber, String subject) {
@@ -28,32 +26,33 @@ public class TimetableEntry {
     }
 
     // Getters and setters
+
     public Long getId() {
         return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
     }
 
     public String getDay() {
         return day;
     }
 
-    public void setDay(String day) {
-        this.day = day;
-    }
-
     public int getSessionNumber() {
         return sessionNumber;
     }
 
-    public void setSessionNumber(int sessionNumber) {
-        this.sessionNumber = sessionNumber;
-    }
-
     public String getSubject() {
         return subject;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public void setDay(String day) {
+        this.day = day;
+    }
+
+    public void setSessionNumber(int sessionNumber) {
+        this.sessionNumber = sessionNumber;
     }
 
     public void setSubject(String subject) {

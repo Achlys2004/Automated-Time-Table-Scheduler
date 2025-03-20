@@ -5,27 +5,33 @@ import java.util.List;
 public class TimetableRequest {
     private String department;
     private String semester;
-    private Integer maxSessionsPerDay; // Maximum sessions per subject per day (e.g., 2)
     private List<Subject> subjects;
     private List<FacultyPreference> facultyPreferences;
     private List<String> availableTimeSlots;
     private List<String> breakTimes;
+    private Integer maxSessionsPerDay;
+    private Integer desiredFreePeriods;
 
+
+    // Constructors
     public TimetableRequest() {
     }
 
-    public TimetableRequest(String department, String semester, Integer maxSessionsPerDay, List<Subject> subjects,
-                            List<FacultyPreference> facultyPreferences, List<String> availableTimeSlots,
-                            List<String> breakTimes) {
+    public TimetableRequest(String department, String semester, List<Subject> subjects,
+            List<FacultyPreference> facultyPreferences, List<String> availableTimeSlots,
+            List<String> breakTimes, Integer maxSessionsPerDay, Integer desiredFreePeriods) {
         this.department = department;
         this.semester = semester;
-        this.maxSessionsPerDay = maxSessionsPerDay;
         this.subjects = subjects;
         this.facultyPreferences = facultyPreferences;
         this.availableTimeSlots = availableTimeSlots;
         this.breakTimes = breakTimes;
+        this.maxSessionsPerDay = maxSessionsPerDay;
+        this.desiredFreePeriods = desiredFreePeriods;
+
     }
 
+    // Getters and Setters
     public String getDepartment() {
         return department;
     }
@@ -40,14 +46,6 @@ public class TimetableRequest {
 
     public void setSemester(String semester) {
         this.semester = semester;
-    }
-
-    public Integer getMaxSessionsPerDay() {
-        return maxSessionsPerDay;
-    }
-
-    public void setMaxSessionsPerDay(Integer maxSessionsPerDay) {
-        this.maxSessionsPerDay = maxSessionsPerDay;
     }
 
     public List<Subject> getSubjects() {
@@ -80,5 +78,17 @@ public class TimetableRequest {
 
     public void setBreakTimes(List<String> breakTimes) {
         this.breakTimes = breakTimes;
+    }
+
+    public Integer getMaxSessionsPerDay() {
+        return maxSessionsPerDay;
+    }
+
+    public Integer desiredFreePeriods() {
+        return desiredFreePeriods;
+    }
+
+    public void setMaxSessionsPerDay(Integer maxSessionsPerDay) {
+        this.maxSessionsPerDay = maxSessionsPerDay;
     }
 }

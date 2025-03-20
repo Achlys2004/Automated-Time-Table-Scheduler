@@ -43,99 +43,122 @@ public class TimetableController {
         // Save subjects to the database if they don't exist
         if (request.getSubjects() != null) {
             for (Subject subject : request.getSubjects()) {
+                System.out.println("Processing subject: " + subject.getName() + ", Code: " + subject.getCode() +
+                        ", Hours: " + subject.getHoursPerWeek());
                 Subject existingSubject = subjectRepository.findByCode(subject.getCode());
                 if (existingSubject == null) {
                     // Set default values if missing
                     if (subject.getHoursPerWeek() == 0) {
                         subject.setHoursPerWeek(3);
+                        System.out.println("  Setting default hours: 3");
                     }
                     if (subject.getDepartment() == null) {
                         subject.setDepartment(request.getDepartment());
+                        System.out.println("  Setting department: " + request.getDepartment());
                     }
                     subjectRepository.save(subject);
+                    System.out.println("  Saved new subject: " + subject.getName());
+                } else {
+                    // Update existing subject with new values
+                    existingSubject.setName(subject.getName());
+                    existingSubject.setFaculty(subject.getFaculty());
+                    existingSubject.setHoursPerWeek(subject.getHoursPerWeek() > 0 ? subject.getHoursPerWeek()
+                            : existingSubject.getHoursPerWeek());
+                    existingSubject.setLabRequired(subject.isLabRequired());
+                    existingSubject.setDepartment(
+                            subject.getDepartment() != null ? subject.getDepartment() : request.getDepartment());
+                    subjectRepository.save(existingSubject);
+                    System.out.println("  Updated existing subject: " + existingSubject.getName());
                 }
             }
+        }
+
+        // Critical debugging - Check if subjects are available in the repository
+        List<Subject> allSubjects = subjectRepository.findAll();
+        System.out.println("\nAll subjects in repository (" + allSubjects.size() + "):");
+        for (Subject s : allSubjects) {
+            System.out.println("  " + s.getCode() + ": " + s.getName() + ", Faculty: " + s.getFaculty() +
+                    ", Hours: " + s.getHoursPerWeek() + ", Department: " + s.getDepartment());
         }
 
         timetableService.generateSchedule(request);
         return ResponseEntity.ok("Schedule generated successfully!");
     }
 
-    /**
-     * Returns raw JSON of all timetable entries.
-     */
     @GetMapping
     public List<TimetableEntry> getAllTimetableEntries() {
         return timetableService.getAllEntries();
     }
 
-    /**
-     * Downloads the timetable in CSV format with the row/column layout.
-     */
     @GetMapping("/download/csv")
     public void downloadCSV(HttpServletResponse response) throws IOException {
         response.setContentType("text/csv");
-        response.setHeader("Content-Disposition", "attachment; filename=\"timetable.csv\"");
+        response.setHeader("Content-Disposition", "attachment; filename=timetable.csv");
 
+        Map<String, List<String>> daySlotMatrix = timetableService.buildDaySlotMatrix();
         String[] timeSlots = timetableService.getTimeSlots();
-        String[] days = timetableService.getDays();
-        Map<String, List<String>> dayToSlots = timetableService.buildDaySlotMatrix();
 
-        try (PrintWriter writer = response.getWriter()) {
-            writer.print("Day - Time");
-            for (String slot : timeSlots) {
-                writer.print("," + slot);
+        PrintWriter writer = response.getWriter();
+
+        // Write header row with time slots
+        writer.print("Day - Time");
+        for (String timeSlot : timeSlots) {
+            writer.print("," + timeSlot);
+        }
+        writer.println();
+
+        // Write each day's schedule
+        for (String day : timetableService.getDays()) {
+            writer.print(day);
+            List<String> dayEntries = daySlotMatrix.get(day);
+            for (String entry : dayEntries) {
+                writer.print("," + entry);
             }
             writer.println();
-
-            for (String day : days) {
-                writer.print(day);
-                List<String> slots = dayToSlots.get(day);
-                for (String subject : slots) {
-                    writer.print("," + subject);
-                }
-                writer.println();
-            }
         }
     }
 
-    /**
-     * Downloads the timetable in Excel format with the row/column layout.
-     */
     @GetMapping("/download/excel")
     public void downloadExcel(HttpServletResponse response) throws IOException {
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment; filename=\"timetable.xlsx\"");
+        response.setHeader("Content-Disposition", "attachment; filename=timetable.xlsx");
 
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Timetable");
+
+        Map<String, List<String>> daySlotMatrix = timetableService.buildDaySlotMatrix();
         String[] timeSlots = timetableService.getTimeSlots();
         String[] days = timetableService.getDays();
-        Map<String, List<String>> dayToSlots = timetableService.buildDaySlotMatrix();
 
-        try (Workbook workbook = new XSSFWorkbook()) {
-            Sheet sheet = workbook.createSheet("Timetable");
+        // Create header row
+        Row headerRow = sheet.createRow(0);
+        Cell headerCell = headerRow.createCell(0);
+        headerCell.setCellValue("Day - Time");
 
-            Row headerRow = sheet.createRow(0);
-            headerRow.createCell(0).setCellValue("Day - Time");
-            for (int i = 0; i < timeSlots.length; i++) {
-                headerRow.createCell(i + 1).setCellValue(timeSlots[i]);
-            }
-
-            for (int rowIndex = 0; rowIndex < days.length; rowIndex++) {
-                String day = days[rowIndex];
-                Row row = sheet.createRow(rowIndex + 1);
-                row.createCell(0).setCellValue(day);
-
-                List<String> slots = dayToSlots.get(day);
-                for (int colIndex = 0; colIndex < slots.size(); colIndex++) {
-                    row.createCell(colIndex + 1).setCellValue(slots.get(colIndex));
-                }
-            }
-
-            for (int i = 0; i <= timeSlots.length; i++) {
-                sheet.autoSizeColumn(i);
-            }
-
-            workbook.write(response.getOutputStream());
+        for (int i = 0; i < timeSlots.length; i++) {
+            Cell cell = headerRow.createCell(i + 1);
+            cell.setCellValue(timeSlots[i]);
         }
+
+        // Create data rows for each day
+        for (int i = 0; i < days.length; i++) {
+            Row row = sheet.createRow(i + 1);
+            Cell dayCell = row.createCell(0);
+            dayCell.setCellValue(days[i]);
+
+            List<String> dayEntries = daySlotMatrix.get(days[i]);
+            for (int j = 0; j < dayEntries.size(); j++) {
+                Cell cell = row.createCell(j + 1);
+                cell.setCellValue(dayEntries.get(j));
+            }
+        }
+
+        // Auto-size columns
+        for (int i = 0; i <= timeSlots.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
+
+        workbook.write(response.getOutputStream());
+        workbook.close();
     }
 }

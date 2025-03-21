@@ -49,17 +49,20 @@ public class SubjectController {
                     subject.setHoursPerWeek(subjectDetails.getHoursPerWeek());
                     subject.setLabRequired(subjectDetails.isLabRequired());
                     subject.setDepartment(subjectDetails.getDepartment());
+                    // Update new fields
+                    subject.setAvailable(subjectDetails.isAvailable());
+                    subject.setAlternateFaculty(subjectDetails.getAlternateFaculty());
                     return ResponseEntity.ok(subjectRepository.save(subject));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteSubject(@PathVariable Long id) {
+    public ResponseEntity<Object> deleteSubject(@PathVariable Long id) {
         return subjectRepository.findById(id)
                 .map(subject -> {
                     subjectRepository.delete(subject);
-                    return ResponseEntity.ok().<Void>build();
+                    return ResponseEntity.ok().build();
                 })
                 .orElse(ResponseEntity.notFound().build());
     }

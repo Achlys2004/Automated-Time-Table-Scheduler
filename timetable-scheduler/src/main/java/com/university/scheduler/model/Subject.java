@@ -1,10 +1,12 @@
 package com.university.scheduler.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 
 @Entity
 @Table(name = "subjects")
 public class Subject {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -12,10 +14,13 @@ public class Subject {
     @Column(nullable = false)
     private String name;
 
+    // We make code optional in the JSON input.
     @Column(nullable = false, unique = true)
     private String code;
 
+    // Use @JsonProperty to map "faculty" from JSON (if needed)
     @Column(nullable = false)
+    @JsonProperty("faculty")
     private String faculty;
 
     @Column
@@ -27,6 +32,12 @@ public class Subject {
     @Column
     private String department;
 
+    @Column
+    private boolean available = true;
+
+    @Column
+    private String alternateFaculty;
+
     public Subject() {
     }
 
@@ -37,8 +48,11 @@ public class Subject {
         this.hoursPerWeek = hoursPerWeek;
         this.labRequired = labRequired;
         this.department = department;
+        this.available = true;
+        this.alternateFaculty = null;
     }
 
+    // Getters
     public Long getId() {
         return id;
     }
@@ -67,12 +81,25 @@ public class Subject {
         return department;
     }
 
+    public boolean isAvailable() {
+        return available;
+    }
+
+    public String getAlternateFaculty() {
+        return alternateFaculty;
+    }
+
+    // Setters
     public void setId(Long id) {
         this.id = id;
     }
 
     public void setName(String name) {
         this.name = name;
+        // Auto-generate code if it is null or empty.
+        if (this.code == null || this.code.trim().isEmpty()) {
+            this.code = name.replaceAll("\\s+", "").toUpperCase();
+        }
     }
 
     public void setCode(String code) {
@@ -95,16 +122,11 @@ public class Subject {
         this.department = department;
     }
 
-    @Override
-    public String toString() {
-        return "Subject{" +
-                "id=" + id +
-                ", name='" + name + '\'' +
-                ", code='" + code + '\'' +
-                ", faculty='" + faculty + '\'' +
-                ", hoursPerWeek=" + hoursPerWeek +
-                ", labRequired=" + labRequired +
-                ", department='" + department + '\'' +
-                '}';
+    public void setAvailable(boolean available) {
+        this.available = available;
+    }
+
+    public void setAlternateFaculty(String alternateFaculty) {
+        this.alternateFaculty = alternateFaculty;
     }
 }

@@ -84,11 +84,11 @@ public class TimetableRequest {
         return maxSessionsPerDay;
     }
 
-    public Integer desiredFreePeriods() {
+    public Integer getDesiredFreePeriods() {
         return desiredFreePeriods;
     }
 
-    public void setMaxSessionsPerDay(Integer maxSessionsPerDay) {
-        this.maxSessionsPerDay = maxSessionsPerDay;
+    public void setDesiredFreePeriods(Integer desiredFreePeriods) {
+        this.desiredFreePeriods = desiredFreePeriods;
     }
 }

@@ -5,6 +5,7 @@ import java.util.List;
 public class FacultyPreference {
     private String faculty;
     private List<String> preferredDays;
+    private List<String> preferredTime;
 
     public FacultyPreference() {
     }
@@ -30,4 +31,11 @@ public class FacultyPreference {
         this.preferredDays = preferredDays;
     }
 
+    public List<String> getPreferredTime() {
+        return preferredTime;
+    }
+
+    public void setPreferredTime(List<String> preferredTime) {
+        this.preferredTime = preferredTime;
+    }
 }

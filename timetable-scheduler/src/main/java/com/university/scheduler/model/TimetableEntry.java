@@ -54,7 +54,7 @@ public class TimetableEntry {
 
     public void setSessionNumber(int sessionNumber) {
         // Here we assume the number of time slots is 8.
-        if (sessionNumber < 1 || sessionNumber > 9) {
+        if (sessionNumber < 1 || sessionNumber > 11) {
             throw new IllegalArgumentException("Session number must be between 1 and 9");
         }
         this.sessionNumber = sessionNumber;

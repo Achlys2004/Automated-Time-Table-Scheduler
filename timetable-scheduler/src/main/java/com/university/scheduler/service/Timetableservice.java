@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -26,17 +27,16 @@ public class TimetableService {
 
     private static final int MORNING_BREAK_INDEX = 3;
     private static final int AFTERNOON_BREAK_INDEX = 7;
-
     private static final int MAX_CONSECUTIVE_SESSIONS = 2;
-
     private static final int MAX_FREE_PERIODS_PER_DAY = 3;
+    private static final int MAX_SESSIONS_PER_DAY = 2;
 
     public TimetableService(TimetableRepository timetableRepository, SubjectRepository subjectRepository) {
         this.timetableRepository = timetableRepository;
         this.subjectRepository = subjectRepository;
     }
 
-    private int maxBacktrackingAttempts = 10000;
+    private int maxBacktrackingAttempts = 1000000;
     private int backtrackingAttempts = 0;
 
     private Map<String, com.university.scheduler.model.FacultyPreference> facultyPreferences = new HashMap<>();
@@ -70,8 +70,7 @@ public class TimetableService {
         int breakSlots = days.length * 2;
         int effectiveSlots = totalSlots - breakSlots;
 
-        logger.info("Total slots: {}, Break slots: {}, Effective slots: {}",
-                totalSlots, breakSlots, effectiveSlots);
+        logger.info("Total slots: {}, Break slots: {}, Effective slots: {}", totalSlots, breakSlots, effectiveSlots);
 
         Map<String, TimetableEntry[]> timetableMap = new LinkedHashMap<>();
         for (String day : days) {
@@ -94,34 +93,34 @@ public class TimetableService {
             timetableMap.put(day, dailySlots);
         }
 
+        // Set fixed hours per week for all subjects to 6
         Map<Subject, Integer> theoryNeeded = new HashMap<>();
         Map<Subject, Integer> labNeeded = new HashMap<>();
         for (Subject s : subjects) {
-            theoryNeeded.put(s, s.getHoursPerWeek());
-            labNeeded.put(s, s.isLabRequired() ? 3 : 0);
-        }
-
-        int totalSubjectHours = 0;
-        for (Subject s : subjects) {
-            totalSubjectHours += s.getHoursPerWeek();
+            // Override hoursPerWeek to ensure 6 slots per subject
             if (s.isLabRequired()) {
-                totalSubjectHours += 3;
+                // For lab subjects: 3 slots for lab, 3 slots for theory
+                theoryNeeded.put(s, 3);
+                labNeeded.put(s, 3);
+            } else {
+                // For theory-only subjects: 6 slots for theory
+                theoryNeeded.put(s, 6);
+                labNeeded.put(s, 0);
             }
         }
 
-        int desiredFreePeriods = request.getDesiredFreePeriods();
+        int totalSubjectHours = subjects.size() * 6; // 6 slots per subject
 
-        if (totalSubjectHours + desiredFreePeriods > effectiveSlots) {
-            logger.warn("Cannot fit all subjects and desired free periods! Adjusting free periods.");
-            desiredFreePeriods = effectiveSlots - totalSubjectHours;
-            if (desiredFreePeriods < 0) {
-                logger.error("Cannot fit all subjects even with no free periods!");
-                desiredFreePeriods = 0;
-            }
-        }
+        // Calculate free periods based on available slots
+        int availableFreePeriods = effectiveSlots - totalSubjectHours;
 
-        logger.info("Total subject hours: {}, Desired free periods: {}, Available slots: {}",
-                totalSubjectHours, desiredFreePeriods, effectiveSlots);
+        // Use either requested free periods or calculated available free periods
+        int desiredFreePeriods = (request.getDesiredFreePeriods() != null)
+                ? Math.min(request.getDesiredFreePeriods(), availableFreePeriods)
+                : availableFreePeriods;
+
+        logger.info("Total subject hours: {}, Available for free periods: {}, Using: {}",
+                totalSubjectHours, availableFreePeriods, desiredFreePeriods);
 
         Map<String, Boolean> dayHasLab = new HashMap<>();
         for (String day : days) {
@@ -134,16 +133,47 @@ public class TimetableService {
             }
         }
 
+        List<WeightedSubject> weightedSubjects = new ArrayList<>();
+        for (Subject s : subjects) {
+            double weight = 1.0;
+            if (s.isLabRequired())
+                weight += 0.5;
+            weight += (s.getHoursPerWeek() / 2.0);
+            weightedSubjects.add(new WeightedSubject(s, weight));
+        }
+
+        Collections.shuffle(subjects);
+        subjects.sort((a, b) -> {
+            double weightA = weightedSubjects.stream()
+                    .filter(ws -> ws.subject.getCode().equals(a.getCode()))
+                    .findFirst().get().weight;
+            double weightB = weightedSubjects.stream()
+                    .filter(ws -> ws.subject.getCode().equals(b.getCode()))
+                    .findFirst().get().weight;
+            return Double.compare(weightB, weightA);
+        });
+
         boolean stillPlacing = true;
-        while (stillPlacing) {
+        int staleIterations = 0;
+        int maxStaleIterations = 5;
+
+        while (stillPlacing && staleIterations < maxStaleIterations) {
             stillPlacing = false;
-            for (Subject s : subjects) {
+
+            List<Subject> roundSubjects = createDynamicPriorityList(subjects, theoryNeeded, timetableMap);
+
+            for (Subject s : roundSubjects) {
                 if (theoryNeeded.get(s) > 0) {
                     boolean placedOne = placeOneTheorySession(s, timetableMap, days, theoryNeeded);
                     if (placedOne) {
                         stillPlacing = true;
+                        staleIterations = 0;
                     }
                 }
+            }
+
+            if (!stillPlacing) {
+                staleIterations++;
             }
         }
 
@@ -166,7 +196,6 @@ public class TimetableService {
                         entry.setSubject(FREE_PERIOD);
                         freePeriodsMade++;
                     } else {
-
                         boolean allocated = false;
                         for (Subject s : subjects) {
                             if (theoryNeeded.get(s) > 0) {
@@ -193,6 +222,10 @@ public class TimetableService {
         redistributeFreePeriods(timetableMap, days);
 
         logger.info("Final timetable - Free periods: {}", countTotalFreePeriods(timetableMap));
+
+        validateAndFixConsecutiveSlots(timetableMap, subjects);
+
+        validateAndEnsureAllHoursPlaced(timetableMap, subjects);
 
         List<TimetableEntry> finalEntries = new ArrayList<>();
         for (String day : days) {
@@ -372,90 +405,181 @@ public class TimetableService {
 
     private boolean placeOneTheorySession(Subject subject, Map<String, TimetableEntry[]> timetableMap,
             String[] days, Map<Subject, Integer> theoryNeeded) {
+
         if (theoryNeeded.get(subject) <= 0) {
             return false;
         }
 
-        List<String> shuffledDays = Arrays.asList(days.clone());
-        Collections.shuffle(shuffledDays);
+        // Initialize day weights based on current allocations
+        Map<String, Double> dayWeights = new HashMap<>();
+        Map<String, Integer> subjectDayCount = new HashMap<>();
+        String subjectLabel = subject.getFaculty() + " - " + subject.getName();
 
-        if (facultyHasPreferences(subject.getFaculty())) {
-            List<String> preferredDays = facultyPreferences.get(subject.getFaculty()).getPreferredDays();
+        // Check each day's current allocation for this subject
+        for (String day : days) {
+            TimetableEntry[] slots = timetableMap.get(day);
+            int count = countSessionsForSubject(slots, subject);
+            subjectDayCount.put(day, count);
 
-            List<String> orderedDays = new ArrayList<>();
-            for (String day : days) {
-                if (preferredDays.contains(day)) {
-                    orderedDays.add(day);
+            // If already at max for the day, give zero weight
+            if (count >= MAX_SESSIONS_PER_DAY) {
+                dayWeights.put(day, 0.0);
+                continue;
+            }
+
+            // Prefer days with fewer sessions of this subject
+            double weight = 10.0 - (count * 5.0);
+
+            // Add slight randomness
+            weight += (Math.random() * 2.0) - 1.0;
+
+            // Count free slots to favor days with more free slots
+            int freeSlots = 0;
+            for (TimetableEntry slot : slots) {
+                if (slot.getSubject().equals(FREE_PERIOD) || slot.getSubject().equals("UNALLOCATED")) {
+                    freeSlots++;
                 }
             }
-            for (String day : days) {
-                if (!preferredDays.contains(day)) {
-                    orderedDays.add(day);
-                }
-            }
-            shuffledDays = orderedDays;
+            weight += (freeSlots * 0.2);
+
+            dayWeights.put(day, Math.max(0, weight));
         }
 
-        String label = subject.getFaculty() + " - " + subject.getName();
+        // Apply faculty preferences with higher weight
+        if (facultyHasPreferences(subject.getFaculty())) {
+            List<String> preferredDays = facultyPreferences.get(subject.getFaculty()).getPreferredDays();
+            for (String day : preferredDays) {
+                if (dayWeights.containsKey(day) && dayWeights.get(day) > 0) {
+                    dayWeights.put(day, dayWeights.get(day) * 2.5);
+                }
+            }
+        }
 
-        for (String day : shuffledDays) {
+        // Create weighted random day selection
+        List<String> weightedDays = new ArrayList<>();
+        for (Map.Entry<String, Double> entry : dayWeights.entrySet()) {
+            String day = entry.getKey();
+            double weight = entry.getValue();
+            int occurrences = (int) Math.ceil(weight);
+            for (int i = 0; i < occurrences; i++) {
+                weightedDays.add(day);
+            }
+        }
+
+        if (weightedDays.isEmpty()) {
+            return false;
+        }
+
+        Collections.shuffle(weightedDays);
+
+        for (String day : weightedDays) {
             TimetableEntry[] slots = timetableMap.get(day);
 
-            int consecutiveCount = 0;
-            int maxConsecutive = 0;
-            for (TimetableEntry slot : slots) {
-                if (slot.getSubject().equals(label)) {
-                    consecutiveCount++;
-                    maxConsecutive = Math.max(maxConsecutive, consecutiveCount);
-                } else {
-                    consecutiveCount = 0;
+            // Skip if already at max for this day
+            if (subjectDayCount.get(day) >= MAX_SESSIONS_PER_DAY) {
+                continue;
+            }
+
+            // Try to place consecutive slots if possible (preferred)
+            if (theoryNeeded.get(subject) >= 2 && subjectDayCount.get(day) == 0) {
+                // Try to place 2 consecutive slots
+                List<Integer> consecutivePairs = new ArrayList<>();
+
+                for (int i = 0; i < slots.length - 1; i++) {
+                    // Skip slots around breaks
+                    if (i == MORNING_BREAK_INDEX - 1 || i == MORNING_BREAK_INDEX ||
+                            i == AFTERNOON_BREAK_INDEX - 1 || i == AFTERNOON_BREAK_INDEX) {
+                        continue;
+                    }
+
+                    if (slots[i].getSubject().equals(FREE_PERIOD) &&
+                            slots[i + 1].getSubject().equals(FREE_PERIOD)) {
+                        consecutivePairs.add(i);
+                    }
+                }
+
+                if (!consecutivePairs.isEmpty()) {
+                    Collections.shuffle(consecutivePairs);
+                    int startSlot = consecutivePairs.get(0);
+
+                    // Place 2 consecutive slots
+                    slots[startSlot].setSubject(subjectLabel);
+                    slots[startSlot + 1].setSubject(subjectLabel);
+                    theoryNeeded.put(subject, theoryNeeded.get(subject) - 2);
+
+                    logger.info("Placed 2 consecutive theory sessions for {} on {} at slots {}-{}",
+                            subject.getName(), day, startSlot + 1, startSlot + 2);
+                    return true;
                 }
             }
 
-            if (maxConsecutive >= MAX_CONSECUTIVE_SESSIONS) {
-                continue;
-            }
+            // If consecutive placement failed or not needed, try single slot
+            List<Integer> possibleSlots = new ArrayList<>();
+            List<Double> slotWeights = new ArrayList<>();
 
-            int existingSessionsToday = countSessionsForSubject(slots, subject);
-
-            if (existingSessionsToday >= 2 && !day.equals("Friday")) {
-                continue;
-            }
-
-            List<Integer> freeSlots = new ArrayList<>();
             for (int i = 0; i < slots.length; i++) {
                 if (slots[i].getSubject().equals(FREE_PERIOD)) {
                     boolean wouldViolateConsecutive = false;
 
-                    if (i > 0 && slots[i - 1].getSubject().equals(label)) {
-                        if (i > 1 && slots[i - 2].getSubject().equals(label)) {
-                            wouldViolateConsecutive = true;
-                        }
-                        if (i < slots.length - 1 && slots[i + 1].getSubject().equals(label)) {
-                            wouldViolateConsecutive = true;
-                        }
-                    }
-                    if (i < slots.length - 1 && slots[i + 1].getSubject().equals(label)) {
-                        if (i < slots.length - 2 && slots[i + 2].getSubject().equals(label)) {
-                            wouldViolateConsecutive = true;
+                    // Check if this would create 3+ consecutive slots
+                    int before = 0;
+                    for (int j = i - 1; j >= 0; j--) {
+                        if (slots[j].getSubject().equals(subjectLabel)) {
+                            before++;
+                        } else {
+                            break;
                         }
                     }
 
+                    int after = 0;
+                    for (int j = i + 1; j < slots.length; j++) {
+                        if (slots[j].getSubject().equals(subjectLabel)) {
+                            after++;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if (before + after + 1 > MAX_CONSECUTIVE_SESSIONS) {
+                        wouldViolateConsecutive = true;
+                    }
+
                     if (!wouldViolateConsecutive) {
-                        freeSlots.add(i);
+                        possibleSlots.add(i);
+
+                        // Weight morning slots slightly higher
+                        double slotWeight = 1.0;
+                        if (i < MORNING_BREAK_INDEX) {
+                            slotWeight += 0.3;
+                        }
+                        slotWeight += (Math.random() - 0.5);
+                        slotWeights.add(slotWeight);
                     }
                 }
             }
 
-            if (!freeSlots.isEmpty()) {
-                Collections.shuffle(freeSlots);
-                int slotIndex = freeSlots.get(0);
+            if (!possibleSlots.isEmpty()) {
+                // Calculate weighted random selection
+                double totalWeight = slotWeights.stream().mapToDouble(Double::doubleValue).sum();
+                double randomValue = Math.random() * totalWeight;
 
-                slots[slotIndex].setSubject(label);
+                double cumulativeWeight = 0;
+                int selectedIndex = 0;
 
+                for (int i = 0; i < slotWeights.size(); i++) {
+                    cumulativeWeight += slotWeights.get(i);
+                    if (randomValue <= cumulativeWeight) {
+                        selectedIndex = i;
+                        break;
+                    }
+                }
+
+                // Place subject in selected slot
+                int slotIndex = possibleSlots.get(selectedIndex);
+                slots[slotIndex].setSubject(subjectLabel);
                 theoryNeeded.put(subject, theoryNeeded.get(subject) - 1);
 
-                logger.info("Placed theory session for {} on {} at slot {}",
+                logger.info("Placed single theory session for {} on {} at slot {}",
                         subject.getName(), day, slotIndex + 1);
                 return true;
             }
@@ -523,8 +647,8 @@ public class TimetableService {
         }
         int endingTotal = countTotalFreePeriods(timetableMap);
         if (startingTotal != endingTotal) {
-            logger.warn("Free period count changed during redistribution! Start: {}, End: {}",
-                    startingTotal, endingTotal);
+            logger.warn("Free period count changed during redistribution! Start: {}, End: {}", startingTotal,
+                    endingTotal);
         }
     }
 
@@ -630,19 +754,93 @@ public class TimetableService {
                     }
                 }
 
+                // Count subjects per day first
+                Map<String, Map<String, Integer>> subjectCountByDay = new HashMap<>();
+                for (Subject subject : subjects) {
+                    String subjectLabel = subject.getFaculty() + " - " + subject.getName();
+                    Map<String, Integer> dayCount = new HashMap<>();
+                    for (String day : timetableMap.keySet()) {
+                        dayCount.put(day, 0);
+                    }
+                    subjectCountByDay.put(subjectLabel, dayCount);
+                }
+
+                // Count existing allocations
+                for (String day : timetableMap.keySet()) {
+                    TimetableEntry[] dailySlots = timetableMap.get(day);
+                    for (TimetableEntry entry : dailySlots) {
+                        String subject = entry.getSubject();
+                        if (!subject.equals(FREE_PERIOD) && !subject.equals(SHORT_BREAK) &&
+                                !subject.equals(LONG_BREAK) && !subject.equals("UNALLOCATED")) {
+                            String baseSubject = subject;
+                            if (subject.endsWith(" Lab")) {
+                                baseSubject = subject.substring(0, subject.length() - 4);
+                            }
+
+                            Map<String, Integer> dayCount = subjectCountByDay.get(baseSubject);
+                            if (dayCount != null) {
+                                dayCount.put(entry.getDay(), dayCount.get(entry.getDay()) + 1);
+                            }
+                        }
+                    }
+                }
+
                 Collections.shuffle(freeSlots);
-                for (int i = 0; i < finalCount - desiredFreePeriods; i++) {
-                    SlotPosition pos = freeSlots.get(i);
+                int converted = 0;
+
+                for (SlotPosition pos : freeSlots) {
+                    if (converted >= finalCount - desiredFreePeriods)
+                        break;
+
                     TimetableEntry[] slots = timetableMap.get(pos.day);
 
-                    if (!subjects.isEmpty()) {
-                        Subject fallbackSubject = subjects.get(i % subjects.size());
-                        slots[pos.index].setSubject(fallbackSubject.getFaculty() + " - " + fallbackSubject.getName());
-                        logger.info("Forced conversion of free period at {} to {}",
-                                pos, fallbackSubject.getName());
+                    // Find subjects that don't exceed day limit
+                    List<Subject> validSubjects = subjects.stream()
+                            .filter(s -> {
+                                String subjectLabel = s.getFaculty() + " - " + s.getName();
+                                Map<String, Integer> dayCount = subjectCountByDay.get(subjectLabel);
+                                return dayCount.get(pos.day) < MAX_CONSECUTIVE_SESSIONS;
+                            })
+                            .collect(Collectors.toList());
+
+                    if (!validSubjects.isEmpty()) {
+                        Subject fallbackSubject = validSubjects.get(new Random().nextInt(validSubjects.size()));
+                        String subjectLabel = fallbackSubject.getFaculty() + " - " + fallbackSubject.getName();
+
+                        // Check for consecutive constraint
+                        boolean wouldViolateConsecutive = false;
+
+                        if (pos.index >= 2 &&
+                                slots[pos.index - 1].getSubject().equals(subjectLabel) &&
+                                slots[pos.index - 2].getSubject().equals(subjectLabel)) {
+                            wouldViolateConsecutive = true;
+                        }
+
+                        if (pos.index <= slots.length - 3 &&
+                                slots[pos.index + 1].getSubject().equals(subjectLabel) &&
+                                slots[pos.index + 2].getSubject().equals(subjectLabel)) {
+                            wouldViolateConsecutive = true;
+                        }
+
+                        if (pos.index >= 1 && pos.index <= slots.length - 2 &&
+                                slots[pos.index - 1].getSubject().equals(subjectLabel) &&
+                                slots[pos.index + 1].getSubject().equals(subjectLabel)) {
+                            wouldViolateConsecutive = true;
+                        }
+
+                        if (!wouldViolateConsecutive) {
+                            slots[pos.index].setSubject(subjectLabel);
+
+                            // Update the count
+                            Map<String, Integer> dayCount = subjectCountByDay.get(subjectLabel);
+                            dayCount.put(pos.day, dayCount.get(pos.day) + 1);
+
+                            converted++;
+                        }
                     } else {
+                        // No valid subject found, use Additional Class
                         slots[pos.index].setSubject("Additional Class");
-                        logger.info("Forced conversion of free period at {} to Additional Class", pos);
+                        converted++;
                     }
                 }
             } else {
@@ -725,8 +923,7 @@ public class TimetableService {
                 }
 
                 filled++;
-                logger.info("Filled free period with {} at {} slot {}",
-                        subject.getName(), pos.day, pos.index + 1);
+                logger.info("Filled free period with {} at {} slot {}", subject.getName(), pos.day, pos.index + 1);
             }
         }
 
@@ -1074,111 +1271,406 @@ public class TimetableService {
     private void allocateRemainingSlots(Map<String, TimetableEntry[]> timetableMap,
             List<SlotPosition> slots,
             List<Subject> subjects) {
-        if (slots.isEmpty()) {
-            return;
+
+        // Set up tracking for subjects per day
+        Map<String, Map<String, Integer>> subjectsPerDay = new HashMap<>();
+
+        for (Subject s : subjects) {
+            String label = s.getFaculty() + " - " + s.getName();
+            Map<String, Integer> dayCounts = new HashMap<>();
+            for (String day : timetableMap.keySet()) {
+                dayCounts.put(day, 0);
+            }
+            subjectsPerDay.put(label, dayCounts);
         }
 
-        logger.info("Allocating {} remaining slots to subjects with constraints", slots.size());
+        // Count existing subjects per day
+        for (String day : timetableMap.keySet()) {
+            TimetableEntry[] daySlots = timetableMap.get(day);
+            for (TimetableEntry slot : daySlots) {
+                String subject = slot.getSubject();
+                if (subject.endsWith(" Lab")) {
+                    // Exclude labs from regular count
+                    continue;
+                }
+
+                if (subjectsPerDay.containsKey(subject)) {
+                    Map<String, Integer> counts = subjectsPerDay.get(subject);
+                    counts.put(day, counts.get(day) + 1);
+                }
+            }
+        }
+
+        // Process slots to fill
         Collections.shuffle(slots);
 
-        Map<String, Map<String, Integer>> subjectCountByDay = new HashMap<>();
-        for (Subject subject : subjects) {
-            String subjectLabel = subject.getFaculty() + " - " + subject.getName();
+        for (SlotPosition pos : slots) {
+            TimetableEntry[] daySlots = timetableMap.get(pos.day);
+            List<Subject> eligibleSubjects = new ArrayList<>();
 
-            Map<String, Integer> dayCount = new HashMap<>();
-            for (String day : timetableMap.keySet()) {
-                dayCount.put(day, 0);
+            for (Subject s : subjects) {
+                String label = s.getFaculty() + " - " + s.getName();
+
+                // Skip if already at max per day
+                if (subjectsPerDay.get(label).get(pos.day) >= MAX_SESSIONS_PER_DAY) {
+                    continue;
+                }
+
+                // Check consecutive constraint
+                boolean violatesConsecutive = false;
+
+                // This is a sliding window approach to check all possible consecutive runs
+                for (int start = Math.max(0, pos.index - MAX_CONSECUTIVE_SESSIONS + 1); start <= pos.index; start++) {
+
+                    int consecutiveCount = 0;
+                    for (int j = start; j < Math.min(daySlots.length, start + MAX_CONSECUTIVE_SESSIONS + 1); j++) {
+                        if (j == pos.index || daySlots[j].getSubject().equals(label)) {
+                            consecutiveCount++;
+                            if (consecutiveCount > MAX_CONSECUTIVE_SESSIONS) {
+                                violatesConsecutive = true;
+                                break;
+                            }
+                        } else {
+                            break; // Break on non-matching slot
+                        }
+                    }
+
+                    if (violatesConsecutive) {
+                        break;
+                    }
+                }
+
+                if (!violatesConsecutive) {
+                    eligibleSubjects.add(s);
+                }
             }
-            subjectCountByDay.put(subjectLabel, dayCount);
-        }
-        for (String day : timetableMap.keySet()) {
-            TimetableEntry[] dailySlots = timetableMap.get(day);
-            for (TimetableEntry entry : dailySlots) {
-                String subject = entry.getSubject();
 
+            if (!eligibleSubjects.isEmpty()) {
+                // Choose randomly from eligible subjects
+                Collections.shuffle(eligibleSubjects);
+                Subject chosen = eligibleSubjects.get(0);
+                String label = chosen.getFaculty() + " - " + chosen.getName();
+
+                daySlots[pos.index].setSubject(label);
+
+                // Update counts
+                Map<String, Integer> counts = subjectsPerDay.get(label);
+                counts.put(pos.day, counts.get(pos.day) + 1);
+
+                logger.info("Allocated {} to slot {} on {}", label, pos.index, pos.day);
+            } else {
+                // No eligible subjects - use a free period
+                daySlots[pos.index].setSubject(FREE_PERIOD);
+                logger.info("No eligible subjects for slot {} on {} - using free period",
+                        pos.index, pos.day);
+            }
+        }
+    }
+
+    private static class WeightedSubject {
+        Subject subject;
+        double weight;
+
+        WeightedSubject(Subject subject, double weight) {
+            this.subject = subject;
+            this.weight = weight;
+        }
+    }
+
+    private List<Subject> createDynamicPriorityList(List<Subject> subjects,
+            Map<Subject, Integer> theoryNeeded,
+            Map<String, TimetableEntry[]> timetableMap) {
+
+        Map<Subject, Set<String>> subjectDayCoverage = new HashMap<>();
+        for (Subject s : subjects) {
+            subjectDayCoverage.put(s, new HashSet<>());
+        }
+
+        for (String day : timetableMap.keySet()) {
+            TimetableEntry[] slots = timetableMap.get(day);
+            for (TimetableEntry entry : slots) {
+                String subject = entry.getSubject();
+                if (!subject.equals(FREE_PERIOD) &&
+                        !subject.equals(SHORT_BREAK) &&
+                        !subject.equals(LONG_BREAK) &&
+                        !subject.equals("UNALLOCATED")) {
+
+                    String[] parts = subject.split(" - ");
+                    if (parts.length >= 2) {
+                        final String faculty = parts[0];
+                        String subjectName = parts[1];
+                        final String finalName;
+
+                        if (subjectName.endsWith(" Lab")) {
+                            finalName = subjectName.substring(0, subjectName.length() - 4);
+                        } else {
+                            finalName = subjectName;
+                        }
+
+                        subjects.stream()
+                                .filter(s -> s.getName().equals(finalName) && s.getFaculty().equals(faculty))
+                                .findFirst()
+                                .ifPresent(s -> subjectDayCoverage.get(s).add(day));
+                    }
+                }
+            }
+        }
+
+        List<Subject> priorityList = new ArrayList<>(subjects);
+
+        Collections.shuffle(priorityList);
+
+        priorityList.sort((a, b) -> {
+            int hoursRemainDiff = theoryNeeded.get(b) - theoryNeeded.get(a);
+            if (hoursRemainDiff != 0)
+                return hoursRemainDiff;
+
+            int daysCoveredDiff = subjectDayCoverage.get(a).size() - subjectDayCoverage.get(b).size();
+            if (daysCoveredDiff != 0)
+                return daysCoveredDiff;
+
+            return (int) (Math.random() * 5) - 2;
+        });
+
+        return priorityList;
+    }
+
+    private void validateAndFixConsecutiveSlots(Map<String, TimetableEntry[]> timetableMap, List<Subject> subjects) {
+        logger.info("Validating and fixing any constraint violations");
+
+        // Fix consecutive slot violations
+        for (String day : timetableMap.keySet()) {
+            TimetableEntry[] slots = timetableMap.get(day);
+
+            // 1. Check for >2 consecutive slots of the same subject
+            for (int i = 0; i < slots.length - 2; i++) {
+                // Skip breaks
+                if (i == MORNING_BREAK_INDEX - 1 || i == MORNING_BREAK_INDEX ||
+                        i == AFTERNOON_BREAK_INDEX - 1 || i == AFTERNOON_BREAK_INDEX) {
+                    continue;
+                }
+
+                String subject = slots[i].getSubject();
+
+                // Skip free periods and lab subjects (allowed to have 3 consecutive slots)
+                if (subject.equals(FREE_PERIOD) || subject.equals(SHORT_BREAK) ||
+                        subject.equals(LONG_BREAK) || subject.endsWith(" Lab")) {
+                    continue;
+                }
+
+                // Check if the 3 consecutive slots have the same subject
+                if (subject.equals(slots[i + 1].getSubject()) && subject.equals(slots[i + 2].getSubject())) {
+                    logger.warn("Found 3 consecutive sessions of {} on {} at positions {}-{}, fixing middle slot",
+                            subject, day, i + 1, i + 3);
+                    slots[i + 1].setSubject(FREE_PERIOD);
+                }
+            }
+
+            // 2. Check for >2 slots of the same subject per day
+            Map<String, Integer> subjectCounts = new HashMap<>();
+            Map<String, List<Integer>> subjectPositions = new HashMap<>();
+
+            for (int i = 0; i < slots.length; i++) {
+                String subject = slots[i].getSubject();
+
+                // Skip breaks and free periods
+                if (subject.equals(FREE_PERIOD) || subject.equals(SHORT_BREAK) ||
+                        subject.equals(LONG_BREAK)) {
+                    continue;
+                }
+
+                // For lab subjects, count the base subject name
                 String baseSubject = subject;
                 if (subject.endsWith(" Lab")) {
                     baseSubject = subject.substring(0, subject.length() - 4);
                 }
 
-                if (subjectCountByDay.containsKey(baseSubject)) {
-                    Map<String, Integer> dayCount = subjectCountByDay.get(baseSubject);
-                    dayCount.put(day, dayCount.get(day) + 1);
+                subjectCounts.put(baseSubject, subjectCounts.getOrDefault(baseSubject, 0) + 1);
+
+                if (!subjectPositions.containsKey(baseSubject)) {
+                    subjectPositions.put(baseSubject, new ArrayList<>());
+                }
+                subjectPositions.get(baseSubject).add(i);
+            }
+
+            // Fix any subjects with >2 slots per day
+            for (Map.Entry<String, Integer> entry : subjectCounts.entrySet()) {
+                String subject = entry.getKey();
+                int count = entry.getValue();
+
+                if (count > MAX_SESSIONS_PER_DAY) {
+                    logger.warn("Subject {} has {} slots on {}, reducing to {}",
+                            subject, count, day, MAX_SESSIONS_PER_DAY);
+
+                    List<Integer> positions = subjectPositions.get(subject);
+                    // Sort to ensure we keep consecutive slots together if possible
+                    Collections.sort(positions);
+
+                    // Remove excess slots starting from the end
+                    for (int i = positions.size() - 1; i >= MAX_SESSIONS_PER_DAY; i--) {
+                        slots[positions.get(i)].setSubject(FREE_PERIOD);
+                    }
+                }
+            }
+        }
+    }
+
+    private void validateAndEnsureAllHoursPlaced(Map<String, TimetableEntry[]> timetableMap, List<Subject> subjects) {
+        logger.info("Validating that all subjects have their required hours...");
+
+        // Count actual hours placed for each subject
+        Map<Subject, Integer> actualHoursPlaced = new HashMap<>();
+        Map<Subject, Integer> requiredHours = new HashMap<>();
+
+        // Initialize counters
+        for (Subject s : subjects) {
+            actualHoursPlaced.put(s, 0);
+            if (s.isLabRequired()) {
+                // Lab subjects: 3 hours lab + 3 hours theory = 6 total
+                requiredHours.put(s, 6);
+            } else {
+                // Theory-only subjects: 6 hours theory
+                requiredHours.put(s, 6);
+            }
+        }
+
+        // Count actual hours placed
+        for (String day : timetableMap.keySet()) {
+            TimetableEntry[] slots = timetableMap.get(day);
+            for (TimetableEntry slot : slots) {
+                String slotSubject = slot.getSubject();
+                if (slotSubject.equals(FREE_PERIOD) || slotSubject.equals(SHORT_BREAK) ||
+                        slotSubject.equals(LONG_BREAK) || slotSubject.equals("UNALLOCATED")) {
+                    continue;
+                }
+
+                // Extract subject name and faculty
+                String baseSubject = slotSubject;
+                if (baseSubject.endsWith(" Lab")) {
+                    baseSubject = baseSubject.substring(0, baseSubject.length() - 4);
+                }
+
+                // Find matching subject in our list
+                for (Subject s : subjects) {
+                    String label = s.getFaculty() + " - " + s.getName();
+                    if (baseSubject.equals(label)) {
+                        actualHoursPlaced.put(s, actualHoursPlaced.get(s) + 1);
+                        break;
+                    }
                 }
             }
         }
 
-        for (SlotPosition pos : slots) {
-            List<Subject> shuffledSubjects = new ArrayList<>(subjects);
-            Collections.shuffle(shuffledSubjects);
+        // Find subjects with missing hours
+        Map<Subject, Integer> missingHours = new HashMap<>();
+        for (Subject s : subjects) {
+            int placed = actualHoursPlaced.get(s);
+            int required = requiredHours.get(s);
 
-            boolean allocated = false;
+            if (placed < required) {
+                missingHours.put(s, required - placed);
+                logger.warn("Subject {} has only {} of {} required hours",
+                        s.getName(), placed, required);
+            }
+        }
 
-            for (Subject subject : shuffledSubjects) {
-                String subjectLabel = subject.getFaculty() + " - " + subject.getName();
-                Map<String, Integer> dayCount = subjectCountByDay.getOrDefault(subjectLabel, new HashMap<>());
+        if (missingHours.isEmpty()) {
+            logger.info("All subjects have their required hours - timetable is complete");
+            return;
+        }
 
-                int currentCount = dayCount.getOrDefault(pos.day, 0);
-                if (currentCount < 2) {
-                    TimetableEntry[] dailySlots = timetableMap.get(pos.day);
-
-                    boolean isLab = false;
-                    if (subject.isLabRequired() && pos.index + 2 < dailySlots.length) {
-                        if (pos.index + 1 < dailySlots.length &&
-                                pos.index + 2 < dailySlots.length &&
-                                dailySlots[pos.index + 1].getSubject().equals("UNALLOCATED") &&
-                                dailySlots[pos.index + 2].getSubject().equals("UNALLOCATED")) {
-                            isLab = true;
-                        }
-                    }
-
-                    if (isLab) {
-                        String labLabel = subjectLabel + " Lab";
-                        dailySlots[pos.index].setSubject(labLabel);
-                        dailySlots[pos.index + 1].setSubject(labLabel);
-                        dailySlots[pos.index + 2].setSubject(labLabel);
-
-                        dayCount.put(pos.day, currentCount + 1);
-                        subjectCountByDay.put(subjectLabel, dayCount);
-
-                        logger.info("Assigned lab block at {} to {} (now has {} sessions that day)",
-                                pos, subject.getName(), currentCount + 1);
-
-                        slots.removeIf(p -> p.day.equals(pos.day) &&
-                                (p.index == pos.index + 1 || p.index == pos.index + 2));
-                    } else {
-                        dailySlots[pos.index].setSubject(subjectLabel);
-
-                        dayCount.put(pos.day, currentCount + 1);
-                        subjectCountByDay.put(subjectLabel, dayCount);
-
-                        logger.info("Assigned extra slot at {} to {} (now has {} sessions that day)",
-                                pos, subject.getName(), currentCount + 1);
-                    }
-
-                    allocated = true;
-                    break;
+        // Find free periods that can be converted to subject hours
+        List<SlotPosition> freeSlots = new ArrayList<>();
+        for (String day : timetableMap.keySet()) {
+            TimetableEntry[] slots = timetableMap.get(day);
+            for (int i = 0; i < slots.length; i++) {
+                if (slots[i].getSubject().equals(FREE_PERIOD)) {
+                    freeSlots.add(new SlotPosition(day, i));
                 }
             }
-            if (!allocated) {
-                if (!subjects.isEmpty()) {
-                    Subject fallbackSubject = subjects.get(new Random().nextInt(subjects.size()));
-                    String subjectLabel = fallbackSubject.getFaculty() + " - " + fallbackSubject.getName();
+        }
 
-                    TimetableEntry[] dailySlots = timetableMap.get(pos.day);
-                    dailySlots[pos.index].setSubject(subjectLabel);
-                    Map<String, Integer> dayCount = subjectCountByDay.getOrDefault(subjectLabel, new HashMap<>());
-                    int currentCount = dayCount.getOrDefault(pos.day, 0);
-                    dayCount.put(pos.day, currentCount + 1);
-                    subjectCountByDay.put(subjectLabel, dayCount);
+        // Try to fill missing hours in a way that respects all constraints
+        for (Map.Entry<Subject, Integer> entry : missingHours.entrySet()) {
+            Subject subject = entry.getKey();
+            int missing = entry.getValue();
 
-                    logger.info("Assigned fallback slot at {} to {} (now has {} sessions that day, exceeding limit)",
-                            pos, fallbackSubject.getName(), currentCount + 1);
-                } else {
-                    TimetableEntry[] dailySlots = timetableMap.get(pos.day);
-                    dailySlots[pos.index].setSubject(FREE_PERIOD);
-                    logger.info("No subjects available, marked {} as Free Period", pos);
+            logger.info("Attempting to place {} missing hours for {}", missing, subject.getName());
+
+            // Skip lab subjects that are missing lab hours - these need to be placed as a
+            // block
+            if (subject.isLabRequired() && missing == 3) {
+                logger.warn("Subject {} is missing its lab block - this needs manual fixing", subject.getName());
+                continue;
+            }
+
+            String subjectLabel = subject.getFaculty() + " - " + subject.getName();
+
+            // Track days where this subject already has MAX_SESSIONS_PER_DAY slots
+            Map<String, Integer> subjectCountPerDay = new HashMap<>();
+            for (String day : timetableMap.keySet()) {
+                subjectCountPerDay.put(day, 0);
+                TimetableEntry[] slots = timetableMap.get(day);
+                for (TimetableEntry slot : slots) {
+                    if (slot.getSubject().equals(subjectLabel)) {
+                        subjectCountPerDay.put(day, subjectCountPerDay.get(day) + 1);
+                    }
                 }
+            }
+
+            Collections.shuffle(freeSlots);
+            Iterator<SlotPosition> it = freeSlots.iterator();
+
+            while (it.hasNext() && missing > 0) {
+                SlotPosition pos = it.next();
+
+                // Skip if already at max sessions per day for this subject
+                if (subjectCountPerDay.get(pos.day) >= MAX_SESSIONS_PER_DAY) {
+                    continue;
+                }
+
+                TimetableEntry[] slots = timetableMap.get(pos.day);
+
+                // Check consecutive constraint
+                boolean wouldViolateConsecutive = false;
+
+                // Check consecutive constraint
+                int before = 0;
+                for (int j = pos.index - 1; j >= 0; j--) {
+                    if (slots[j].getSubject().equals(subjectLabel)) {
+                        before++;
+                    } else {
+                        break;
+                    }
+                }
+
+                int after = 0;
+                for (int j = pos.index + 1; j < slots.length; j++) {
+                    if (slots[j].getSubject().equals(subjectLabel)) {
+                        after++;
+                    } else {
+                        break;
+                    }
+                }
+
+                if (before + after + 1 > MAX_CONSECUTIVE_SESSIONS) {
+                    wouldViolateConsecutive = true;
+                }
+
+                if (!wouldViolateConsecutive) {
+                    // Place the subject
+                    slots[pos.index].setSubject(subjectLabel);
+                    missing--;
+                    subjectCountPerDay.put(pos.day, subjectCountPerDay.get(pos.day) + 1);
+                    it.remove(); // Remove this slot from available slots
+                    logger.info("Placed additional hour for {} on {} at slot {}",
+                            subject.getName(), pos.day, pos.index + 1);
+                }
+            }
+
+            if (missing > 0) {
+                logger.warn("Could not place all missing hours for {} - still missing {}",
+                        subject.getName(), missing);
             }
         }
     }

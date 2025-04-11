@@ -1,34 +1,53 @@
-# Automated Timetable Scheduler API Documentation
+# Automated Timetable Scheduler - Technical Documentation
+
+This document provides detailed technical information for developers implementing and testing the Automated Timetable Scheduler, with particular focus on frontend integration, test data, and advanced usage scenarios.
 
 ## Table of Contents
 
 - [API Endpoints](#api-endpoints)
 - [Data Models](#data-models)
-- [Scheduling Constraints](#scheduling-constraints)
-- [Time Slots](#time-slots)
-- [Special Constants](#special-constants)
-- [Implementation Notes](#implementation-notes)
-- [Example JSON Payloads](#example-json-payloads)
+- [Scheduling Algorithm](#scheduling-algorithm)
+- [Implementation Details](#implementation-details)
+- [Test Data & Scenarios](#test-data--scenarios)
+  - [Example JSON Payloads](#example-json-payloads)
+  - [Test Scenarios](#test-scenarios)
+  - [API Response Examples](#api-response-examples)
+- [Frontend Implementation Guide](#frontend-implementation-guide)
+  - [API Integration Guidelines](#api-integration-guidelines)
+  - [Time Slots & Break Structure](#time-slots--break-structure)
+  - [UI Component Guidelines](#ui-component-guidelines)
+  - [State Management Recommendations](#state-management-recommendations)
+  - [Performance Considerations](#performance-considerations)
+  - [Accessibility Features](#accessibility-features)
+- [Advanced Usage Guide](#advanced-usage-guide)
 
 ## API Endpoints
 
 ### Timetable Management
 
-#### Generate Timetable (Simple Algorithm)
+#### Generate Timetable
 
 - **URL:** `/api/timetable/generate`
 - **Method:** POST
 - **Request Body:** [TimetableRequest](#timetablerequest)
 - **Response:** String message confirming generation
-- **Description:** Generates a timetable using the simple algorithm based on the provided request parameters
+- **Description:** Generates a timetable using the weighted algorithm based on the provided request parameters
+- **Implementation:** Uses weighted randomization with constraint handling to schedule subjects
+- **Error Responses:**
+  - 400 Bad Request: If subjects list is empty or null
 
-#### Generate Timetable (Backtracking Algorithm)
+#### Validate Timetable
 
-- **URL:** `/api/timetable/generate/backtracking`
+- **URL:** `/api/timetable/validate`
 - **Method:** POST
 - **Request Body:** [TimetableRequest](#timetablerequest)
-- **Response:** String message confirming generation
-- **Description:** Generates a timetable using a more complex backtracking algorithm that tries to satisfy all constraints
+- **Response:**
+  - If valid: `{"status": "valid", "message": "Timetable is valid and meets all requirements"}`
+  - If invalid: `{"status": "invalid", "violations": [...], "fixedTimetable": {...}}`
+- **Description:** Validates the current timetable against scheduling constraints and returns any violations
+- **Implementation:** Checks for constraint violations and provides auto-fix suggestions
+- **Error Responses:**
+  - 400 Bad Request: If subjects list is empty or null
 
 #### Get All Timetable Entries
 
@@ -43,6 +62,7 @@
 - **Method:** GET
 - **Response:** CSV file download
 - **Description:** Exports the current timetable in CSV format with days as rows and time slots as columns
+- **Implementation:** Writes CSV with comma-separated values for all timetable entries
 
 #### Download Timetable as Excel
 
@@ -50,6 +70,7 @@
 - **Method:** GET
 - **Response:** Excel file download
 - **Description:** Exports the current timetable in Excel format with days as rows and time slots as columns
+- **Implementation:** Uses Apache POI to generate Excel workbook with auto-sized columns
 
 #### Update Teacher Availability
 
@@ -62,6 +83,7 @@
   - `updateOldTimetable` (boolean, **required**): Whether to update the existing timetable or generate a new one
 - **Response:** String message confirming update
 - **Description:** Updates teacher availability and optionally reassigns classes
+- **Implementation:** Updates teacher assignments in timetable entries and subject repository
 
 ### Subject Management
 
@@ -79,6 +101,8 @@
 - **Path Variable:** `id` (long, **required**)
 - **Response:** [Subject](#subject) object
 - **Description:** Retrieves a specific subject by its ID
+- **Error Responses:**
+  - 404 Not Found: If subject with given ID doesn't exist
 
 #### Get Subjects by Department
 
@@ -104,6 +128,8 @@
 - **Request Body:** [Subject](#subject) object
 - **Response:** Updated [Subject](#subject) object
 - **Description:** Updates an existing subject
+- **Error Responses:**
+  - 404 Not Found: If subject with given ID doesn't exist
 
 #### Delete Subject
 
@@ -112,25 +138,10 @@
 - **Path Variable:** `id` (long, **required**)
 - **Response:** 200 OK status code if successful
 - **Description:** Deletes a subject from the database
+- **Error Responses:**
+  - 404 Not Found: If subject with given ID doesn't exist
 
 ## Data Models
-
-### TimetableEntry
-
-Represents a single cell in the timetable.
-
-```json
-{
-  "id": long,
-  "day": string,        // Required: Day of the week (Monday, Tuesday, etc.)
-  "sessionNumber": int, // Required: Session number (1-11, corresponding to time slot)
-  "subject": string     // Required: Subject name or special values like "Free Period"
-}
-```
-
-**Constraints:**
-
-- `sessionNumber` must be between 1 and 11
 
 ### Subject
 
@@ -150,11 +161,18 @@ Represents a course that needs to be scheduled in the timetable.
 }
 ```
 
-**Notes:**
+### TimetableEntry
 
-- If `labRequired` is true, the scheduler will try to allocate a continuous 3-hour block for the lab
-- For lab subjects, the scheduler allocates hours as follows: 3 hours for lab, 3 hours for theory
-- For theory-only subjects, all hours are allocated as theory sessions
+Represents a single cell in the timetable.
+
+```json
+{
+  "id": long,
+  "day": string,        // Required: Day of the week (Monday, Tuesday, etc.)
+  "sessionNumber": int, // Required: Session number (1-11, corresponding to time slot)
+  "subject": string     // Required: Subject name or special values like "Free Period"
+}
+```
 
 ### TimetableRequest
 
@@ -169,7 +187,7 @@ Contains all parameters needed to generate a timetable.
   "availableTimeSlots": [string],            // Optional: Available time slots (uses default if not provided)
   "breakTimes": [string],                    // Optional: Break times (uses default if not provided)
   "maxSessionsPerDay": int,                  // Optional: Maximum sessions per day per subject (defaults to 2)
-  "desiredFreePeriods": int                  // Optional: Desired number of free periods in the timetable
+  "desiredFreePeriods": int                  // Optional: Desired number of free periods in the timetable (defaults to 9)
 }
 ```
 
@@ -185,81 +203,15 @@ Represents a teacher's preferences for scheduling.
 }
 ```
 
-## Scheduling Constraints
+## Scheduling Algorithm
 
-The scheduler enforces the following constraints:
+### Overview
 
-1. **Maximum Consecutive Sessions**: No more than 2 consecutive sessions of the same subject (except lab)
+The timetable generation algorithm follows a multi-phase approach to schedule subjects efficiently while respecting constraints.
 
-   - Constant: `MAX_CONSECUTIVE_SESSIONS = 2`
+## Implementation Details
 
-2. **Free Periods Per Day**: Maximum 3 free periods per day
-
-   - Constant: `MAX_FREE_PERIODS_PER_DAY = 3`
-
-3. **Sessions Per Subject Per Day**: Maximum 2 sessions of a subject per day
-
-   - Constant: `MAX_SESSIONS_PER_DAY = 2`
-
-4. **Lab Sessions**: Lab sessions are always scheduled as 3 consecutive slots on the same day
-
-   - Lab sessions don't span across breaks
-
-5. **Breaks**: Fixed break slots at specific times
-
-   - Morning Break Index: 3 (11:00am - 11:30am)
-   - Afternoon Break Index: 7 (1:45pm - 2:30pm)
-
-6. **Faculty Preferences**:
-   - Faculty with preferences get higher priority in scheduling
-   - Preferred days get higher weight in scheduling
-
-## Time Slots
-
-The system uses the following fixed time slots:
-1: "8:45am - 9:45am"
-2: "9:45am - 10:15am"
-3: "10:15am - 11:00am"
-4: "11:00am - 11:30am" (Short Break)
-5: "11:30am - 12:15pm"
-6: "12:15pm - 1:00pm"
-7: "1:00pm - 1:45pm"
-8: "1:45pm - 2:30pm" (Long Break)
-9: "2:30pm - 3:15pm"
-10: "3:15pm - 4:00pm"
-11: "4:00pm - 4:45pm"
-
-## Special Constants
-
-The scheduler uses the following special constants:
-
-- `FREE_PERIOD = "Free Period"`: Indicates no class scheduled
-- `SHORT_BREAK = "Short Break (11:00-11:30)"`: Morning break
-- `LONG_BREAK = "Long Break (1:45-2:30)"`: Afternoon break
-- `UNALLOCATED = "UNALLOCATED"`: Used during scheduling process, should not appear in final timetable
-
-## Implementation Notes
-
-### Timetable Generation Algorithms
-
-The system provides two algorithms:
-
-#### Simple Algorithm (/api/timetable/generate)
-
-- Prioritizes subjects based on difficulty and lab requirements
-- Places lab blocks first
-- Distributes theory sessions with weighted randomization
-- Enforces constraints on consecutive sessions and sessions per day
-- Good for most use cases; faster but may not utilize slots optimally
-
-#### Backtracking Algorithm (/api/timetable/generate/backtracking)
-
-- Uses recursive backtracking to try all possible combinations
-- More comprehensive constraint satisfaction
-- Better at handling complex scheduling scenarios
-- May take longer to execute for large datasets
-
-### Subject Representation in Timetable
+### Subject Representation
 
 Subjects appear in the timetable with the following format:
 
@@ -268,37 +220,23 @@ Subjects appear in the timetable with the following format:
 
 ### Free Period Distribution
 
-The scheduler attempts to:
-
-- Distribute free periods evenly across days
-- Limit the number of free periods per day to `MAX_FREE_PERIODS_PER_DAY`
-- Fill in extra free periods with subjects that need more hours when possible
+The scheduler implements a sophisticated free period distribution strategy.
 
 ### Lab Block Placement
 
-Lab blocks are always 3 consecutive sessions and:
-
-- Will not span across breaks
-- Are placed before regular theory sessions
-- Are limited to one lab block per day when possible
+Lab blocks are always 3 consecutive sessions.
 
 ### Teacher Availability Updates
 
-When a teacher is marked as unavailable:
+When a teacher is marked as unavailable, the system provides options to update the timetable.
 
-- Their entries in the timetable can be either:
-  - Replaced with a new teacher
-  - Converted to free periods
-- The teacher's subjects in the repository can be updated with a new faculty
-- Optionally, the entire timetable can be regenerated
+### Validation & Auto-fixing
 
-### Special Handling
+The system provides comprehensive validation and auto-fixing.
 
-The system handles special cases like:
+## Test Data & Scenarios
 
-- Constraint violations - automatic fixes for consecutive session violations
-- Unallocated slots - conversion to free periods
-- Ensuring all subjects have required hours - filling free periods if needed
+This section provides test data and scenarios for validating the timetable scheduler implementation.
 
 ## Example JSON Payloads
 
@@ -309,36 +247,28 @@ This example shows the minimum required fields to generate a timetable:
 ```json
 {
   "department": "Computer Science",
-  "semester": "5",
+  "semester": "6",
   "subjects": [
     {
-      "name": "Database Management Systems",
-      "code": "CS301",
+      "name": "Database Systems",
+      "code": "CS601",
       "faculty": "Dr. Smith",
-      "hoursPerWeek": 6,
-      "labRequired": false,
-      "department": "Computer Science"
-    },
-    {
-      "name": "Web Programming",
-      "code": "CS302",
-      "faculty": "Prof. Johnson",
       "hoursPerWeek": 6,
       "labRequired": true,
       "department": "Computer Science"
     },
     {
       "name": "Computer Networks",
-      "code": "CS303",
-      "faculty": "Dr. Williams",
+      "code": "CS602",
+      "faculty": "Prof. Johnson",
       "hoursPerWeek": 6,
       "labRequired": true,
       "department": "Computer Science"
     },
     {
-      "name": "Discrete Mathematics",
-      "code": "CS304",
-      "faculty": "Prof. Brown",
+      "name": "Software Engineering",
+      "code": "CS603",
+      "faculty": "Dr. Williams",
       "hoursPerWeek": 6,
       "labRequired": false,
       "department": "Computer Science"
@@ -354,32 +284,22 @@ This example includes all possible fields that can be sent to the backend:
 ```json
 {
   "department": "Computer Science",
-  "semester": "5",
+  "semester": "6",
   "subjects": [
     {
-      "name": "Database Management Systems",
-      "code": "CS301",
+      "name": "Database Systems",
+      "code": "CS601",
       "faculty": "Dr. Smith",
       "hoursPerWeek": 6,
-      "labRequired": false,
+      "labRequired": true,
       "department": "Computer Science",
       "available": true,
       "alternateFaculty": "Dr. Davis"
     },
     {
-      "name": "Web Programming",
-      "code": "CS302",
-      "faculty": "Prof. Johnson",
-      "hoursPerWeek": 6,
-      "labRequired": true,
-      "department": "Computer Science",
-      "available": true,
-      "alternateFaculty": "Prof. Miller"
-    },
-    {
       "name": "Computer Networks",
-      "code": "CS303",
-      "faculty": "Dr. Williams",
+      "code": "CS602",
+      "faculty": "Prof. Johnson",
       "hoursPerWeek": 6,
       "labRequired": true,
       "department": "Computer Science",
@@ -387,9 +307,9 @@ This example includes all possible fields that can be sent to the backend:
       "alternateFaculty": null
     },
     {
-      "name": "Discrete Mathematics",
-      "code": "CS304",
-      "faculty": "Prof. Brown",
+      "name": "Software Engineering",
+      "code": "CS603",
+      "faculty": "Dr. Williams",
       "hoursPerWeek": 6,
       "labRequired": false,
       "department": "Computer Science",
@@ -398,20 +318,30 @@ This example includes all possible fields that can be sent to the backend:
     },
     {
       "name": "Operating Systems",
-      "code": "CS305",
-      "faculty": "Dr. Wilson",
+      "code": "CS604",
+      "faculty": "Prof. Brown",
       "hoursPerWeek": 6,
-      "labRequired": true,
+      "labRequired": false,
       "department": "Computer Science",
-      "available": false,
-      "alternateFaculty": "Dr. Taylor"
+      "available": true,
+      "alternateFaculty": "Prof. Turner"
+    },
+    {
+      "name": "Machine Learning",
+      "code": "CS606",
+      "faculty": "Dr. Miller",
+      "hoursPerWeek": 6,
+      "labRequired": false,
+      "department": "Computer Science",
+      "available": true,
+      "alternateFaculty": null
     }
   ],
   "facultyPreferences": [
     {
       "faculty": "Dr. Smith",
       "preferredDays": ["Monday", "Wednesday", "Friday"],
-      "preferredTime": ["8:45am - 9:45am", "9:45am - 10:15am"]
+      "preferredTime": ["8:45am - 9:30am", "9:30am - 10:15am"]
     },
     {
       "faculty": "Prof. Johnson",
@@ -420,8 +350,8 @@ This example includes all possible fields that can be sent to the backend:
     }
   ],
   "availableTimeSlots": [
-    "8:45am - 9:45am",
-    "9:45am - 10:15am",
+    "8:45am - 9:30am",
+    "9:30am - 10:15am",
     "10:15am - 11:00am",
     "11:00am - 11:30am",
     "11:30am - 12:15pm",
@@ -434,6 +364,129 @@ This example includes all possible fields that can be sent to the backend:
   ],
   "breakTimes": ["11:00am - 11:30am", "1:45pm - 2:30pm"],
   "maxSessionsPerDay": 2,
-  "desiredFreePeriods": 5
+  "desiredFreePeriods": 9
 }
 ```
+
+### Validation Response Example
+
+Example response from the `/api/timetable/validate` endpoint when violations are found:
+
+```json
+{
+  "status": "invalid",
+  "violations": [
+    "Total free periods is 12, should be 9",
+    "Day Monday has 4 free periods, exceeding maximum of 3",
+    "Subject Dr. Smith - Database Systems has more than 2 consecutive sessions on Wednesday",
+    "Subject Dr. Miller - Machine Learning has 3 sessions on Tuesday, exceeding maximum of 2"
+  ],
+  "fixedTimetable": {
+    "Monday": [
+      "Dr. Smith - Database Systems",
+      "Dr. Smith - Database Systems",
+      "Free Period",
+      "Short Break (11:00-11:30)",
+      "Dr. Williams - Software Engineering",
+      "Free Period",
+      "Dr. Miller - Machine Learning",
+      "Long Break (1:45-2:30)",
+      "Free Period",
+      "Dr. Williams - Software Engineering",
+      "Dr. Miller - Machine Learning"
+    ],
+    "Tuesday": [
+      "Dr. Johnson - Computer Networks",
+      "Dr. Johnson - Computer Networks",
+      "Prof. Brown - Operating Systems",
+      "Short Break (11:00-11:30)",
+      "Dr. Smith - Database Systems",
+      "Dr. Miller - Machine Learning",
+      "Prof. Brown - Operating Systems",
+      "Long Break (1:45-2:30)",
+      "Dr. Williams - Software Engineering",
+      "Free Period",
+      "Dr. Smith - Database Systems"
+    ],
+    "Wednesday": [
+      "Prof. Johnson - Computer Networks Lab",
+      "Prof. Johnson - Computer Networks Lab",
+      "Prof. Johnson - Computer Networks Lab",
+      "Short Break (11:00-11:30)",
+      "Dr. Williams - Software Engineering",
+      "Dr. Williams - Software Engineering",
+      "Dr. Miller - Machine Learning",
+      "Long Break (1:45-2:30)",
+      "Free Period",
+      "Prof. Brown - Operating Systems",
+      "Prof. Brown - Operating Systems"
+    ],
+    "Thursday": [
+      "Dr. Smith - Database Systems Lab",
+      "Dr. Smith - Database Systems Lab",
+      "Dr. Smith - Database Systems Lab",
+      "Short Break (11:00-11:30)",
+      "Dr. Miller - Machine Learning",
+      "Prof. Brown - Operating Systems",
+      "Prof. Johnson - Computer Networks",
+      "Long Break (1:45-2:30)",
+      "Dr. Williams - Software Engineering",
+      "Free Period",
+      "Free Period"
+    ],
+    "Friday": [
+      "Prof. Johnson - Computer Networks",
+      "Dr. Miller - Machine Learning",
+      "Dr. Smith - Database Systems",
+      "Short Break (11:00-11:30)",
+      "Prof. Brown - Operating Systems",
+      "Dr. Williams - Software Engineering",
+      "Prof. Johnson - Computer Networks",
+      "Long Break (1:45-2:30)",
+      "Free Period",
+      "Prof. Brown - Operating Systems",
+      "Dr. Miller - Machine Learning"
+    ]
+  }
+}
+```
+
+Example response from the /api/timetable/validate endpoint when no violations are found:
+
+```json
+{
+  "status": "valid",
+  "message": "Timetable is valid and meets all requirements",
+  ...
+}
+```
+
+## Frontend Implementation Guide
+
+### API Integration Guidelines
+
+When integrating with the Timetable Scheduler API, follow these guidelines.
+
+### Time Slots & Break Structure
+
+The system uses the following fixed time slots.
+
+### UI Component Guidelines
+
+For timetable visualization in the frontend.
+
+### State Management Recommendations
+
+Use a state management solution to manage timetable data.
+
+### Performance Considerations
+
+Virtualize large timetable grids for better performance.
+
+### Accessibility Features
+
+Ensure proper ARIA labels for interactive elements.
+
+## Advanced Usage Guide
+
+This section provides advanced usage scenarios for the timetable scheduler.

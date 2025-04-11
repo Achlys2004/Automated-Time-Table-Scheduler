@@ -1389,8 +1389,6 @@ public class TimetableService {
                 }
             }
         }
-
         return count;
     }
-
 }

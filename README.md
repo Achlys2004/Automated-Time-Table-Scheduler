@@ -1,62 +1,84 @@
 # Automated Timetable Scheduler
 
-An intelligent system for generating and managing academic timetables, designed to handle complex scheduling constraints and faculty preferences.
+A comprehensive system for generating and managing academic timetables with intelligent scheduling algorithms, constraint handling, and faculty preference management.
 
 [![GitHub repo](https://img.shields.io/badge/GitHub-Repository-green.svg)](https://github.com/Achlys2004/Automated-Time-Table-Scheduler)
+[![Java Version](https://img.shields.io/badge/Java-17-orange.svg)](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [Features](#features)
-- [Technologies Used](#technologies-used)
-- [Installation](#installation)
-- [Usage](#usage)
-- [API Documentation](#api-documentation)
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [System Architecture](#system-architecture)
+- [Installation & Setup](#installation--setup)
+- [Basic Usage](#basic-usage)
 - [Project Structure](#project-structure)
-- [Scheduling Algorithms](#scheduling-algorithms)
-- [Contributing](#contributing)
+- [API Reference](#api-reference)
 - [License](#license)
+- [Detailed Documentation](#detailed-documentation)
 
-## ✨ Features
+## Overview
 
-- **Intelligent Scheduling**: Two different algorithms (simple and backtracking) for optimal timetable generation
-- **Constraint Management**: Handles various scheduling constraints like:
-  - Maximum consecutive sessions for a subject
-  - Maximum sessions per subject per day
-  - Lab session blocks
-  - Break periods
-- **Faculty Preferences**: Support for teacher day/time preferences
+The Automated Timetable Scheduler is a sophisticated solution for the complex problem of academic scheduling. It generates optimized timetables while respecting various constraints such as faculty preferences, lab requirements, consecutive session limits, and proper break periods. The system provides RESTful APIs for timetable generation, validation, and management of subjects and faculty preferences.
+
+## Key Features
+
+- **Intelligent Timetable Generation**: Weight-based algorithm for optimal scheduling
+- **Constraint Management**:
+  - Maximum consecutive sessions (2)
+  - Maximum sessions per subject per day (2)
+  - Lab session blocks (continuous 3-hour allocation)
+  - Fixed break periods
+  - Free period distribution (maximum 3 per day)
+- **Faculty Preference Support**: Prioritize faculty's preferred teaching days
+- **Lab Session Handling**: Special management for lab subjects
 - **Export Options**: Download timetables as CSV or Excel files
-- **Teacher Availability Management**: Update teacher availability and automatically adjust timetables
-- **Subject Management**: Complete CRUD operations for subject management
-- **Free Period Distribution**: Intelligent distribution of free periods
+- **Teacher Availability Management**: Update teacher availability and adjust timetables accordingly
+- **Subject CRUD Operations**: Complete management of subject data
+- **Timetable Validation**: Comprehensive validation against all constraints
+- **Automatic Constraint Violation Fixing**: Ability to fix invalid timetables
 
-## 🛠️ Technologies Used
+## System Architecture
 
-- **Backend**: Spring Boot, Java 17
-- **Database**: JPA/Hibernate with H2/MySQL
-- **API**: RESTful endpoints with JSON payloads
-- **Export**: Apache POI for Excel generation, CSV support
+The system follows a standard Spring Boot architecture with:
 
-## 🔧 Installation
+1. **Controller Layer**: REST API endpoints for timetable and subject operations
+2. **Service Layer**: Business logic including the scheduling algorithm
+3. **Repository Layer**: Data access interfaces for JPA/Hibernate
+4. **Model Layer**: JPA entity classes and request/response models
 
-1. Clone the repository:
+## Installation & Setup
+
+### Prerequisites
+
+- JDK 17 or higher
+- Maven 3.6+ or Gradle 7.0+
+- (Optional) MySQL for production deployment
+
+### Installation Steps
+
+1. **Clone Repository**
 
 ```bash
-git clone git@github.com:Achlys2004/Automated-Time-Table-Scheduler.git
+git clone https://github.com/Achlys2004/Automated-Time-Table-Scheduler.git
 cd Automated-Time-Table-Scheduler
 ```
 
-2. Build the project using Maven:
+2. **Build Application**
 
 ```bash
 cd timetable-scheduler
 ./mvnw clean install
 ```
 
-3. Configure the database in `application.properties`:
+3. **Configure Database**
+
+Edit `src/main/resources/application.properties`:
 
 ```properties
-# Use H2 for development
+# Development with H2 (in-memory database)
 spring.datasource.url=jdbc:h2:mem:timetabledb
 spring.datasource.driverClassName=org.h2.Driver
 spring.datasource.username=sa
@@ -64,153 +86,96 @@ spring.datasource.password=password
 spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
 spring.h2.console.enabled=true
 
-# For production, use MySQL or another database
+# For production with MySQL (uncomment)
 # spring.datasource.url=jdbc:mysql://localhost:3306/timetabledb
 # spring.datasource.username=root
 # spring.datasource.password=password
 # spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
 ```
 
-## 🚀 Usage
-
-1. Start the application:
+4. **Run Application**
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-2. Access the API at `http://localhost:8080/api/`
+5. **Access API**
 
-3. Generate a timetable by sending a POST request to `/api/timetable/generate` with appropriate JSON payload (see [API Documentation](#api-documentation))
+- Base URL: `http://localhost:8080/api/`
 
-4. Download the generated timetable in CSV or Excel format
+## Basic Usage
 
-## 📚 API Documentation
+### Generating Your First Timetable
 
-For comprehensive API documentation, see [necessary_details.md](necessary_details.md) in this repository.
+1. Create subjects using the subject management API
+2. Generate a timetable by sending a POST request to `/api/timetable/generate`
+3. Retrieve or download the generated timetable
 
-### Key Endpoints
+### Advanced Configuration Options
 
-#### Timetable Management
+- Faculty preferences
+- Free period distribution
+- Teacher availability management
+- Timetable validation
 
-- `POST /api/timetable/generate` - Generate timetable (simple algorithm)
-- `POST /api/timetable/generate/backtracking` - Generate timetable (backtracking algorithm)
-- `GET /api/timetable` - Get all timetable entries
-- `GET /api/timetable/download/csv` - Download timetable as CSV
-- `GET /api/timetable/download/excel` - Download timetable as Excel
+For detailed usage instructions including test data and examples, see our [Advanced Usage Guide](necessary_details.md#test-scenarios).
 
-#### Subject Management
+## Project Structure
 
-- `GET /api/subjects` - Get all subjects
-- `POST /api/subjects` - Create new subject
-- `PUT /api/subjects/{id}` - Update a subject
-- `DELETE /api/subjects/{id}` - Delete a subject
-
-### Example Request
-
-```json
-{
-  "department": "Computer Science",
-  "semester": "5",
-  "subjects": [
-    {
-      "name": "Database Management Systems",
-      "code": "CS301",
-      "faculty": "Dr. Smith",
-      "hoursPerWeek": 6,
-      "labRequired": false,
-      "department": "Computer Science"
-    },
-    {
-      "name": "Web Programming",
-      "code": "CS302",
-      "faculty": "Prof. Johnson",
-      "hoursPerWeek": 6,
-      "labRequired": true,
-      "department": "Computer Science"
-    }
-  ]
-}
 ```
-
-## 🗂️ Project Structure
-
 timetable-scheduler/
-```
 ├── src/main/java/com/university/scheduler/
 │   ├── controller/
-│   │   ├── SubjectController.java
-│   │   └── TimetableController.java
+│   │   ├── SubjectController.java     # Subject CRUD operations
+│   │   └── TimetableController.java   # Timetable generation and export
 │   ├── model/
-│   │   ├── FacultyPreference.java
-│   │   ├── Subject.java
-│   │   ├── TimetableEntry.java
-│   │   └── TimetableRequest.java
+│   │   ├── FacultyPreference.java     # Faculty preference data
+│   │   ├── Subject.java               # Subject entity
+│   │   ├── TimetableEntry.java        # Timetable entry entity
+│   │   └── TimetableRequest.java      # Timetable generation request
 │   ├── repository/
-│   │   ├── SubjectRepository.java
-│   │   └── TimetableRepository.java
+│   │   ├── SubjectRepository.java     # Subject data access
+│   │   └── TimetableRepository.java   # Timetable data access
 │   └── service/
-│       └── TimetableService.java
+│       └── TimetableService.java      # Core scheduling algorithm
 └── src/main/resources/
-    └── application.properties
+    └── application.properties         # Application configuration
 ```
 
-## 🧮 Scheduling Algorithms
+## API Reference
 
-### Simple Algorithm
+This section provides a high-level overview of available endpoints. For detailed request/response examples and testing information, see our [API Documentation](necessary_details.md#api-response-examples).
 
-The simple algorithm prioritizes subjects based on lab requirements and difficulty, and uses a weighted randomization approach to distribute sessions across the week while ensuring constraints are met.
+### Timetable Management Endpoints
 
-Key features:
+- `POST /api/timetable/generate`: Generate a new timetable
+- `POST /api/timetable/validate`: Validate a timetable against constraints
+- `GET /api/timetable`: Retrieve all timetable entries
+- `GET /api/timetable/download/csv`: Export timetable as CSV
+- `GET /api/timetable/download/excel`: Export timetable as Excel
+- `POST /api/timetable/updateTeacher`: Update teacher availability
 
-- Places lab blocks first (3 consecutive hours) to ensure laboratory sessions have contiguous blocks
-- Uses weighted randomization to distribute theory sessions across days
-- Enforces constraints on consecutive sessions and sessions per day
-- Distributes free periods evenly across the week
-- Faster execution but may not utilize slots optimally in complex scenarios
+### Subject Management Endpoints
 
-Implementation highlights:
+- `GET /api/subjects`: Retrieve all subjects
+- `GET /api/subjects/{id}`: Retrieve a subject by ID
+- `GET /api/subjects/department/{department}`: Retrieve subjects by department
+- `POST /api/subjects`: Create a new subject
+- `PUT /api/subjects/{id}`: Update an existing subject
+- `DELETE /api/subjects/{id}`: Delete a subject
 
-- Lab subjects are allocated with priority to secure 3-hour contiguous blocks
-- Subject weights are calculated based on lab requirements and hours per week
-- Faculty preferences are considered with priority weighting when provided
-
-### Backtracking Algorithm
-
-The backtracking algorithm uses a recursive approach to try all possible combinations, providing more comprehensive constraint satisfaction for complex scheduling scenarios.
-
-Key features:
-
-- Uses recursive backtracking to explore the solution space
-- Enforces all constraints simultaneously
-- Better at handling complex scheduling scenarios with tight constraints
-- Prioritizes subjects based on difficulty of scheduling
-- May take longer to execute for large datasets
-
-Implementation highlights:
-
-- Maintains running count of sessions per subject per day
-- Checks for constraint violations before each placement
-- Uses optimized ordering of subjects to place those with most constraints first
-- Includes time limits to prevent excessive computation
-
-## 👥 Contributing
-
-Contributions are welcome! To contribute:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Commit your changes: `git commit -m 'Add some feature'`
-4. Push to the branch: `git push origin feature-name`
-5. Open a pull request
-
-Please ensure your code follows the project's coding standards and include appropriate tests.
-
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgements
+## Detailed Documentation
 
-- This project was developed as part of the Object-Oriented Analysis and Design course
-- Special thanks to all contributors and faculty advisors
+For comprehensive technical details, including:
+
+- Frontend implementation guidelines
+- Test data and scenarios
+- Example JSON payloads
+- Detailed API responses
+- Performance considerations
+
+See our [Detailed Technical Documentation](necessary_details.md).

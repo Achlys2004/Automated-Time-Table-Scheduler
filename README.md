@@ -136,38 +136,24 @@ For comprehensive API documentation, see [necessary_details.md](necessary_detail
 ## 🗂️ Project Structure
 
 timetable-scheduler/
-
+```
 ├── src/main/java/com/university/scheduler/
-
 │   ├── controller/
-
 │   │   ├── SubjectController.java
-
 │   │   └── TimetableController.java
-
 │   ├── model/
-
 │   │   ├── FacultyPreference.java
-
 │   │   ├── Subject.java
-
 │   │   ├── TimetableEntry.java
-
 │   │   └── TimetableRequest.java
-
 │   ├── repository/
-
 │   │   ├── SubjectRepository.java
-
 │   │   └── TimetableRepository.java
-
 │   └── service/
-
 │       └── TimetableService.java
-
 └── src/main/resources/
- 
     └── application.properties
+```
 
 ## 🧮 Scheduling Algorithms
 

@@ -273,7 +273,9 @@ This example shows the minimum required fields to generate a timetable:
       "labRequired": false,
       "department": "Computer Science"
     }
-  ]
+  ],
+  "maxSessionsPerDay": 2,
+  "desiredFreePeriods": 9
 }
 ```
 

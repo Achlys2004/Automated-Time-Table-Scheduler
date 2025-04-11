@@ -17,11 +17,11 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/timetable")
-public class Timetablecontroller {
+public class TimetableController {
 
     private final TimetableService timetableService;
 
-    public Timetablecontroller(TimetableService timetableService) {
+    public TimetableController(TimetableService timetableService) {
         this.timetableService = timetableService;
     }
 

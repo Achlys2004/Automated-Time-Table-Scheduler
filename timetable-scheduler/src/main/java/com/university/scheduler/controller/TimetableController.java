@@ -36,6 +36,29 @@ public class TimetableController {
         return ResponseEntity.ok("Schedule generated successfully!");
     }
 
+    @PostMapping("/validate")
+    public ResponseEntity<?> validateTimetable(@RequestBody TimetableRequest request) {
+        if (request.getSubjects() == null || request.getSubjects().isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Invalid request: Subjects list is required");
+        }
+        
+        Map<String, Object> validationResults = timetableService.validateSchedule();
+        
+        if ((boolean) validationResults.get("isValid")) {
+            return ResponseEntity.ok().body(Map.of(
+                "status", "valid",
+                "message", "Timetable is valid and meets all requirements"
+            ));
+        } else {
+            return ResponseEntity.ok().body(Map.of(
+                "status", "invalid",
+                "violations", validationResults.get("violations"),
+                "fixedTimetable", validationResults.get("fixedTimetable")
+            ));
+        }
+    }
+
     @GetMapping
     public List<TimetableEntry> getAllTimetableEntries() {
         return timetableService.getAllEntries();
@@ -78,7 +101,7 @@ public class TimetableController {
 
         Map<String, List<String>> daySlotMatrix = timetableService.buildDaySlotMatrix();
         String[] timeSlots = timetableService.getTimeSlots();
-        String[] days = timetableService.getDays();
+        String[] days = timetableService.getDays().toArray(new String[0]);
 
         Row headerRow = sheet.createRow(0);
         Cell headerCell = headerRow.createCell(0);

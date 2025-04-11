@@ -14,7 +14,6 @@ public class Subject {
     @Column(nullable = false)
     private String name;
 
-    // We make code optional in the JSON input.
     @Column(nullable = false, unique = true)
     private String code;
 

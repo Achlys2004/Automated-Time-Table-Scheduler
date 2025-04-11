@@ -3,8 +3,6 @@
 A comprehensive system for generating and managing academic timetables with intelligent scheduling algorithms, constraint handling, and faculty preference management.
 
 [![GitHub repo](https://img.shields.io/badge/GitHub-Repository-green.svg)](https://github.com/Achlys2004/Automated-Time-Table-Scheduler)
-[![Java Version](https://img.shields.io/badge/Java-17-orange.svg)](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Table of Contents

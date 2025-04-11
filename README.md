@@ -52,8 +52,8 @@ The system follows a standard Spring Boot architecture with:
 ### Prerequisites
 
 - JDK 17 or higher
-- Maven 3.6+ or Gradle 7.0+
-- (Optional) MySQL for production deployment
+- Maven
+- MySQL for production deployment
 
 ### Installation Steps
 
@@ -140,10 +140,6 @@ timetable-scheduler/
     └── application.properties         # Application configuration
 ```
 
-## API Reference
-
-This section provides a high-level overview of available endpoints. For detailed request/response examples and testing information, see our [API Documentation](necessary_details.md#api-response-examples).
-
 ### Timetable Management Endpoints
 
 - `POST /api/timetable/generate`: Generate a new timetable
@@ -162,10 +158,6 @@ This section provides a high-level overview of available endpoints. For detailed
 - `PUT /api/subjects/{id}`: Update an existing subject
 - `DELETE /api/subjects/{id}`: Delete a subject
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Detailed Documentation
 
 For comprehensive technical details, including:
@@ -177,3 +169,8 @@ For comprehensive technical details, including:
 - Performance considerations
 
 See our [Detailed Technical Documentation](necessary_details.md).
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+

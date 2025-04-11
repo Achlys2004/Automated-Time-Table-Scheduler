@@ -14,7 +14,7 @@ public class TimetableEntry {
     private String day;
 
     @Column(nullable = false)
-    private int sessionNumber; 
+    private int sessionNumber;
 
     @Column(nullable = false)
     private String subject;
@@ -53,9 +53,9 @@ public class TimetableEntry {
     }
 
     public void setSessionNumber(int sessionNumber) {
-        // Here we assume the number of time slots is 8.
+        // Fix the comment and validation to match actual time slots (11)
         if (sessionNumber < 1 || sessionNumber > 11) {
-            throw new IllegalArgumentException("Session number must be between 1 and 9");
+            throw new IllegalArgumentException("Session number must be between 1 and 11");
         }
         this.sessionNumber = sessionNumber;
     }

@@ -27,19 +27,13 @@ public class TimetableController {
 
     @PostMapping("/generate")
     public ResponseEntity<String> generateSchedule(@RequestBody TimetableRequest request) {
+        // Validation
+        if (request.getSubjects() == null || request.getSubjects().isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Invalid request: Subjects list is required");
+        }
         timetableService.generateSchedule(request);
         return ResponseEntity.ok("Schedule generated successfully!");
-    }
-
-    @PostMapping("/generate/backtracking")
-    public ResponseEntity<String> generateBacktrackingSchedule(@RequestBody TimetableRequest request) {
-        try {
-            timetableService.generateBacktrackingSchedule(request);
-            return ResponseEntity.ok("Timetable generated successfully using backtracking algorithm!");
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Error generating timetable: " + e.getMessage());
-        }
     }
 
     @GetMapping

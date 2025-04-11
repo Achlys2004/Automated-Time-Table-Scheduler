@@ -164,7 +164,7 @@ Contains all parameters needed to generate a timetable.
 {
   "department": string,                      // Required: Department for which timetable is generated
   "semester": string,                        // Required: Semester for which timetable is generated
-  "subjects": [Subject],                     // Optional: List of subjects to schedule (if not provided, taken from database)
+  "subjects": [Subject],                     // Required: List of subjects to schedule (if not provided, taken from database)
   "facultyPreferences": [FacultyPreference], // Optional: Teacher preferences for scheduling
   "availableTimeSlots": [string],            // Optional: Available time slots (uses default if not provided)
   "breakTimes": [string],                    // Optional: Break times (uses default if not provided)

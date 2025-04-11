@@ -462,33 +462,3 @@ Example response from the /api/timetable/validate endpoint when no violations ar
   ...
 }
 ```
-
-## Frontend Implementation Guide
-
-### API Integration Guidelines
-
-When integrating with the Timetable Scheduler API, follow these guidelines.
-
-### Time Slots & Break Structure
-
-The system uses the following fixed time slots.
-
-### UI Component Guidelines
-
-For timetable visualization in the frontend.
-
-### State Management Recommendations
-
-Use a state management solution to manage timetable data.
-
-### Performance Considerations
-
-Virtualize large timetable grids for better performance.
-
-### Accessibility Features
-
-Ensure proper ARIA labels for interactive elements.
-
-## Advanced Usage Guide
-
-This section provides advanced usage scenarios for the timetable scheduler.

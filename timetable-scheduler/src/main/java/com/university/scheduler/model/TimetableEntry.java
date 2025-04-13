@@ -19,6 +19,9 @@ public class TimetableEntry {
     @Column(nullable = false)
     private String subject;
 
+    @Column(name = "is_lab_session")
+    private Boolean isLabSession = false;  // Initialize with default value
+
     public TimetableEntry() {
     }
 
@@ -26,6 +29,7 @@ public class TimetableEntry {
         this.day = day;
         this.sessionNumber = sessionNumber;
         this.subject = subject;
+        this.isLabSession = false;  // Set default value in constructor
     }
 
     public Long getId() {
@@ -42,6 +46,10 @@ public class TimetableEntry {
 
     public String getSubject() {
         return subject;
+    }
+
+    public Boolean getIsLabSession() {
+        return isLabSession;
     }
 
     public void setId(Long id) {
@@ -64,6 +72,14 @@ public class TimetableEntry {
         this.subject = subject;
     }
 
+    public void setIsLabSession(Boolean labSession) {
+        this.isLabSession = labSession;
+    }
+
+    public boolean isLabSession() {
+        return this.subject != null && this.subject.contains("Lab");
+    }
+
     @Override
     public String toString() {
         return "TimetableEntry{" +
@@ -71,6 +87,7 @@ public class TimetableEntry {
                 ", day='" + day + '\'' +
                 ", sessionNumber=" + sessionNumber +
                 ", subject='" + subject + '\'' +
+                ", isLabSession=" + isLabSession +
                 '}';
     }
 }

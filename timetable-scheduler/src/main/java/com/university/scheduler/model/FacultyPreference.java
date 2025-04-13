@@ -1,10 +1,24 @@
 package com.university.scheduler.model;
 
+import jakarta.persistence.*;
 import java.util.List;
 
+@Entity
+@Table(name = "faculty_preferences")
 public class FacultyPreference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false)
     private String faculty;
+
+    @ElementCollection
+    @CollectionTable(name = "faculty_preferred_days")
     private List<String> preferredDays;
+
+    @ElementCollection
+    @CollectionTable(name = "faculty_preferred_times")
     private List<String> preferredTime;
 
     public FacultyPreference() {
@@ -37,5 +51,12 @@ public class FacultyPreference {
 
     public void setPreferredTime(List<String> preferredTime) {
         this.preferredTime = preferredTime;
+    }
+
+    // Define the isPreferenceMet() method
+    public boolean isPreferenceMet() {
+        // Implement logic to check if the preference is met
+        // For example, return true if the preference criteria are satisfied
+        return true; // Replace with actual logic
     }
 }

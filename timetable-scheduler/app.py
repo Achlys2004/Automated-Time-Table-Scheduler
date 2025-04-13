@@ -25,71 +25,75 @@ if page == "Timetable Management":
 
     # Generate Timetable
     st.header("Generate Timetable")
+    
+    # 1. Get basic inputs
     department = st.text_input("Department")
     semester = st.text_input("Semester")
-    if st.button("Generate Timetable"):
-        # Fetch subjects from the backend
-        subjects_response = get("/api/subjects")
-        if subjects_response.status_code == 200:
-            subjects = subjects_response.json()
-        else:
-            st.error("Failed to fetch subjects. Please ensure the backend is running.")
-            subjects = []
-
-        # Allow user to select subjects
+    
+    # 2. Fetch and select subjects
+    subjects_response = get("/api/subjects")
+    if subjects_response.status_code == 200:
+        subjects = subjects_response.json()
         selected_subjects = st.multiselect(
             "Select Subjects",
             options=[f"{subject['name']} ({subject['code']})" for subject in subjects],
             format_func=lambda x: x.split(" (")[0]
         )
-
-        # Map selected subjects to their full details
-        selected_subjects_details = [
-            subject for subject in subjects if f"{subject['name']} ({subject['code']})" in selected_subjects
-        ]
-
-        # Check if subjects are selected
-        if not selected_subjects_details:
-            st.error("Please select at least one subject.")
-        else:
-            # Input for max sessions per day and desired free periods
-            max_sessions_per_day = st.number_input("Max Sessions Per Day", min_value=1, max_value=10, value=2)
-            desired_free_periods = st.number_input("Desired Free Periods", min_value=0, max_value=20, value=9)
-
-            # Prepare the payload
-            payload = {
-                "department": department,
-                "semester": semester,
-                "subjects": selected_subjects_details,
-                "maxSessionsPerDay": max_sessions_per_day,
-                "desiredFreePeriods": desired_free_periods
-            }
-
-            # Send the request to the backend
-            response = post("/api/timetable/generate", payload)
-
-            # Debugging: Log the raw response content
-            st.write("Response Status Code:", response.status_code)
-            st.write("Raw Response Content:", response.text)
-
-            # Handle the response
-            if response.status_code == 200:
-                try:
-                    st.write("Response Body:", response.json())  # Debugging
-                    st.success("Timetable generated successfully!")
-                except ValueError:
-                    st.error("Failed to parse JSON response from the backend.")
+        
+        # 3. Additional inputs
+        max_sessions_per_day = st.number_input("Max Sessions Per Day", min_value=1, max_value=10, value=2)
+        desired_free_periods = st.number_input("Desired Free Periods", min_value=0, max_value=20, value=9)
+        
+        # 4. Generate button
+        if st.button("Generate Timetable"):
+            if not selected_subjects:
+                st.error("Please select at least one subject.")
+            elif not department or not semester:
+                st.error("Department and Semester are required.")
             else:
-                st.error(f"Request failed with status code {response.status_code}: {response.text}")
+                # Map selected subjects to their full details
+                selected_subjects_details = [
+                    subject for subject in subjects 
+                    if f"{subject['name']} ({subject['code']})" in selected_subjects
+                ]
+                
+                # Prepare the payload
+                payload = {
+                    "department": department,
+                    "semester": semester,
+                    "subjects": selected_subjects_details,
+                    "maxSessionsPerDay": max_sessions_per_day,
+                    "desiredFreePeriods": desired_free_periods
+                }
+                
+                # Send request
+                response = post("/api/timetable/generate", payload)
+                st.write("Payload:", payload)  # Debug payload
+                
+                if response.status_code == 200:
+                    st.success("Timetable generated successfully!")
+                else:
+                    st.error(f"Failed to generate timetable: {response.text}")
+    else:
+        st.error("Failed to fetch subjects. Please ensure the backend is running.")
 
     # Validate Timetable
     st.header("Validate Timetable")
     if st.button("Validate Timetable"):
         response = post("/api/timetable/validate", {})
+        
         if response.status_code == 200:
-            st.json(response.json())
+            result = response.json()
+            if result["status"] == "valid":
+                st.success(result["message"])
+            else:
+                st.error(result["message"])
+                if "violations" in result:
+                    st.write("Violations found:")
+                    for violation in result["violations"]:
+                        st.write(f"- {violation}")
         else:
-            st.error("Failed to validate timetable.")
+            st.error(f"Failed to validate timetable: {response.text}")
 
     # Download Timetable
     st.header("Download Timetable")
@@ -149,32 +153,43 @@ elif page == "Faculty Preferences":
 
     # Add Faculty Preference
     st.header("Add Faculty Preference")
-    faculty = st.text_input("Faculty Name")
-    preferred_days = st.multiselect("Preferred Days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+    
+    # Get list of faculty from subjects
+    subjects_response = get("/api/subjects")
+    faculty_list = []
+    if subjects_response.status_code == 200:
+        subjects = subjects_response.json()
+        faculty_list = sorted(list(set(s['faculty'] for s in subjects)))
+    
+    # Input fields
+    faculty = st.selectbox("Faculty Name", faculty_list)
+    preferred_days = st.multiselect(
+        "Preferred Days", 
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    )
     preferred_times = st.multiselect(
         "Preferred Times",
-        ["8:45am - 9:30am", "9:30am - 10:15am", "10:15am - 11:00am", "11:30am - 12:15pm", "12:15pm - 1:00pm"]
+        ["8:45am - 9:30am", "9:30am - 10:15am", "10:15am - 11:00am", 
+         "11:30am - 12:15pm", "12:15pm - 1:00pm"]
     )
+
     if st.button("Add Preference"):
-        payload = {
-            "faculty": faculty,
-            "preferredDays": preferred_days,
-            "preferredTime": preferred_times
-        }
-
-        # Send the request to the backend
-        response = post("/api/faculty/preferences", payload)
-
-        # Debugging: Log the raw response content
-        st.write("Response Status Code:", response.status_code)
-        st.write("Raw Response Content:", response.text)
-
-        # Handle the response
-        if response.status_code == 200:
-            try:
-                st.write("Response Body:", response.json())  # Debugging
-                st.success("Preference added successfully!")
-            except ValueError:
-                st.error("Failed to parse JSON response from the backend.")
+        if not faculty:
+            st.error("Please select a faculty member.")
+        elif not preferred_days:
+            st.error("Please select at least one preferred day.")
         else:
-            st.error(f"Request failed with status code {response.status_code}: {response.text}")
+            payload = {
+                "faculty": faculty,
+                "preferredDays": preferred_days,
+                "preferredTime": preferred_times
+            }
+            
+            st.write("Sending payload:", payload)  # Debug payload
+            
+            response = post("/api/faculty/preferences", payload)
+            
+            if response.status_code == 200:
+                st.success("Faculty preference added successfully!")
+            else:
+                st.error(f"Failed to add preference: {response.text}")

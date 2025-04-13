@@ -6,55 +6,117 @@ import com.university.scheduler.service.TimetableService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import com.university.scheduler.repository.FacultyPreferenceRepository; // Ensure this is the correct package
+import com.university.scheduler.model.FacultyPreference; // Ensure this is the correct package
+import com.university.scheduler.model.Subject; // Ensure this is the correct package
 
 @RestController
 @RequestMapping("/api/timetable")
 public class TimetableController {
 
-    private final TimetableService timetableService;
+    @Autowired
+    private TimetableService timetableService;
+
+    @Autowired
+    private FacultyPreferenceRepository facultyPreferenceRepository;
 
     public TimetableController(TimetableService timetableService) {
         this.timetableService = timetableService;
     }
 
     @PostMapping("/generate")
-    public ResponseEntity<String> generateSchedule(@RequestBody TimetableRequest request) {
+    public ResponseEntity<?> generateTimetable(@RequestBody TimetableRequest request) {
         // Validation
         if (request.getSubjects() == null || request.getSubjects().isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Invalid request: Subjects list is required");
         }
-        timetableService.generateSchedule(request);
-        return ResponseEntity.ok("Schedule generated successfully!");
+
+        try {
+            // Get faculty preferences for each subject
+            Map<String, FacultyPreference> facultyPreferences = new HashMap<>();
+            for (Subject subject : request.getSubjects()) {
+                facultyPreferenceRepository.findByFaculty(subject.getFaculty())
+                        .ifPresent(pref -> facultyPreferences.put(subject.getFaculty(), pref));
+            }
+
+            // Consider preferences while generating timetable
+            List<String> conflicts = new ArrayList<>();
+            for (Map.Entry<String, FacultyPreference> entry : facultyPreferences.entrySet()) {
+                FacultyPreference pref = entry.getValue();
+                // Example usage: Add a conflict if the preference is not met
+                if (!pref.isPreferenceMet()) {
+                    conflicts.add("Conflict for faculty: " + entry.getKey());
+                }
+
+                // Check if timetable slots match faculty preferences
+                // Add any conflicts to the conflicts list
+            }
+
+            if (!conflicts.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "status", "error",
+                        "message", "Timetable generation failed due to faculty preference conflicts",
+                        "conflicts", conflicts
+                ));
+            }
+
+            // Generate timetable considering preferences
+            timetableService.generateSchedule(request);
+            return ResponseEntity.ok("Schedule generated successfully!");
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "status", "error",
+                    "message", "Failed to generate timetable: " + e.getMessage()
+            ));
+        }
     }
 
     @PostMapping("/validate")
-    public ResponseEntity<?> validateTimetable(@RequestBody TimetableRequest request) {
-        if (request.getSubjects() == null || request.getSubjects().isEmpty()) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body("Invalid request: Subjects list is required");
-        }
-        
-        Map<String, Object> validationResults = timetableService.validateSchedule();
-        
-        if ((boolean) validationResults.get("isValid")) {
-            return ResponseEntity.ok().body(Map.of(
-                "status", "valid",
-                "message", "Timetable is valid and meets all requirements"
-            ));
-        } else {
-            return ResponseEntity.ok().body(Map.of(
-                "status", "invalid",
-                "violations", validationResults.get("violations"),
-                "fixedTimetable", validationResults.get("fixedTimetable")
+    public ResponseEntity<?> validateTimetable() {
+        try {
+            Map<String, Object> validationResult = timetableService.validateSchedule();
+            
+            if (validationResult == null) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "status", "error",
+                    "message", "Validation failed: No results returned"
+                ));
+            }
+
+            Boolean isValid = (Boolean) validationResult.get("isValid");
+            Object violationsObj = validationResult.get("violations");
+            List<String> violations = (violationsObj instanceof List<?> list && list.stream().allMatch(item -> item instanceof String))
+                    ? ((List<?>) violationsObj).stream()
+                        .filter(item -> item instanceof String)
+                        .map(item -> (String) item)
+                        .toList()
+                    : Collections.emptyList();
+
+            if (Boolean.TRUE.equals(isValid)) {
+                return ResponseEntity.ok(Map.of(
+                    "status", "valid",
+                    "message", "Timetable is valid and meets all requirements"
+                ));
+            } else {
+                return ResponseEntity.ok(Map.of(
+                    "status", "invalid",
+                    "message", "Timetable validation failed",
+                    "violations", violations != null ? violations : Collections.emptyList()
+                ));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "status", "error",
+                "message", "Failed to validate timetable: " + e.getMessage()
             ));
         }
     }

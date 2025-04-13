@@ -5,6 +5,8 @@ import com.university.scheduler.model.TimetableEntry;
 import com.university.scheduler.model.TimetableRequest;
 import com.university.scheduler.repository.SubjectRepository;
 import com.university.scheduler.repository.TimetableRepository;
+import com.university.scheduler.repository.FacultyPreferenceRepository;
+import com.university.scheduler.model.FacultyPreference;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
@@ -19,18 +21,22 @@ public class TimetableService {
     private static final String SHORT_BREAK = "Short Break (11:00-11:30)";
     private static final String LONG_BREAK = "Long Break (1:45-2:30)";
 
-    private final TimetableRepository timetableRepository;
+    // Removed duplicate declaration of subjectRepository
+    private final FacultyPreferenceRepository facultyPreferenceRepository;
     private final SubjectRepository subjectRepository;
+    private final TimetableRepository timetableRepository;
 
     private static final int MORNING_BREAK_INDEX = 3;
     private static final int AFTERNOON_BREAK_INDEX = 7;
     private static final int MAX_CONSECUTIVE_SESSIONS = 2;
     private static final int MAX_FREE_PERIODS_PER_DAY = 3;
-    private static final int MAX_SESSIONS_PER_DAY = 2;
+    private static final int MAX_SESSIONS_PER_DAY = 6; // Define the maximum sessions per day
+    // Removed duplicate constructor
 
-    public TimetableService(TimetableRepository timetableRepository, SubjectRepository subjectRepository) {
+    public TimetableService(TimetableRepository timetableRepository, SubjectRepository subjectRepository, FacultyPreferenceRepository facultyPreferenceRepository) {
         this.timetableRepository = timetableRepository;
         this.subjectRepository = subjectRepository;
+        this.facultyPreferenceRepository = facultyPreferenceRepository;
     }
 
     private Map<String, com.university.scheduler.model.FacultyPreference> facultyPreferences = new HashMap<>();
@@ -913,173 +919,211 @@ public class TimetableService {
         }
     }
 
-    public Map<String, Object> validateSchedule() {
-        List<TimetableEntry> entries = timetableRepository.findAll();
-        List<String> violations = new ArrayList<>();
-        boolean isValid = true;
-
-        Map<String, Integer> freePeriodsByDay = new HashMap<>();
-        Map<String, Integer> subjectHours = new HashMap<>();
-        Map<String, Integer> subjectLabHours = new HashMap<>();
-        Map<String, Map<String, Integer>> daySubjectCount = new HashMap<>();
-
-        for (String day : getDays()) {
-            freePeriodsByDay.put(day, 0);
-            daySubjectCount.put(day, new HashMap<>());
-        }
-
-        for (TimetableEntry entry : entries) {
-            String day = entry.getDay();
-            String subject = entry.getSubject();
-
-            if (subject.equals(FREE_PERIOD)) {
-                freePeriodsByDay.put(day, freePeriodsByDay.get(day) + 1);
-                continue;
-            }
-
-            if (subject.equals(SHORT_BREAK) || subject.equals(LONG_BREAK)) {
-                continue;
-            }
-
-            if (subject.contains("Lab")) {
-                String baseSubject = subject.replace(" Lab", "");
-                subjectLabHours.put(baseSubject, subjectLabHours.getOrDefault(baseSubject, 0) + 1);
-            } else {
-                subjectHours.put(subject, subjectHours.getOrDefault(subject, 0) + 1);
-                daySubjectCount.get(day).put(subject, daySubjectCount.get(day).getOrDefault(subject, 0) + 1);
-            }
-        }
-
-        int totalFreePeriods = freePeriodsByDay.values().stream().mapToInt(Integer::intValue).sum();
-        if (totalFreePeriods != 9) {
-            violations.add("Total free periods is " + totalFreePeriods + ", should be 9");
-            isValid = false;
-        }
-
-        for (String day : getDays()) {
-            int freePeriodsForDay = freePeriodsByDay.get(day);
-            if (freePeriodsForDay > MAX_FREE_PERIODS_PER_DAY) {
-                violations.add("Day " + day + " has " + freePeriodsForDay + " free periods, exceeding maximum of "
-                        + MAX_FREE_PERIODS_PER_DAY);
-                isValid = false;
-            }
-
-            Map<String, Integer> subjectCountForDay = daySubjectCount.get(day);
-            for (Map.Entry<String, Integer> entry : subjectCountForDay.entrySet()) {
-                if (entry.getValue() > MAX_SESSIONS_PER_DAY) {
-                    violations.add("Subject " + entry.getKey() + " has " + entry.getValue() + " sessions on " + day
-                            + ", exceeding maximum of " + MAX_SESSIONS_PER_DAY);
-                    isValid = false;
-                }
-            }
-        }
-
-        List<Subject> subjects = subjectRepository.findAll();
-        for (Subject subject : subjects) {
-            String subjectName = subject.getFaculty() + " - " + subject.getName();
-            int requiredHours = subject.getHoursPerWeek();
-            int actualHours = subjectHours.getOrDefault(subjectName, 0);
-
-            if (actualHours != requiredHours) {
-                violations
-                        .add("Subject " + subjectName + " has " + actualHours + " hours, should have " + requiredHours);
-                isValid = false;
-            }
-
-            if (subject.isLabRequired()) {
-                int requiredLabHours = 3;
-                int actualLabHours = subjectLabHours.getOrDefault(subjectName, 0);
-
-                if (actualLabHours != requiredLabHours) {
-                    violations.add("Subject " + subjectName + " has " + actualLabHours + " lab hours, should have "
-                            + requiredLabHours);
-                    isValid = false;
-                }
-            }
-        }
-
-        Map<String, List<TimetableEntry>> entriesByDay = new HashMap<>();
-        for (String day : getDays()) {
-            entriesByDay.put(day, new ArrayList<>());
-        }
-
-        for (TimetableEntry entry : entries) {
-            entriesByDay.get(entry.getDay()).add(entry);
-        }
-
-        for (String day : getDays()) {
-            List<TimetableEntry> dayEntries = entriesByDay.get(day);
-            dayEntries.sort(Comparator.comparing(TimetableEntry::getSessionNumber));
-
-            for (int i = 0; i < dayEntries.size() - MAX_CONSECUTIVE_SESSIONS; i++) {
-                String subject = dayEntries.get(i).getSubject();
-                if (subject.equals(FREE_PERIOD) || subject.equals(SHORT_BREAK) ||
-                        subject.equals(LONG_BREAK) || subject.contains("Lab")) {
-                    continue;
-                }
-
-                boolean consecutive = true;
-                for (int j = 1; j <= MAX_CONSECUTIVE_SESSIONS; j++) {
-                    if (!dayEntries.get(i + j).getSubject().equals(subject)) {
-                        consecutive = false;
-                        break;
-                    }
-                }
-
-                if (consecutive) {
-                    violations.add("Subject " + subject + " has more than " + MAX_CONSECUTIVE_SESSIONS +
-                            " consecutive sessions on " + day);
-                    isValid = false;
-                }
-            }
-        }
-
+    public Map<String, Object> validateScheduleDetailed() {
         Map<String, Object> result = new HashMap<>();
-        result.put("isValid", isValid);
-        result.put("violations", violations);
+        List<String> violations = new ArrayList<>();
 
-        if (!isValid) {
-            Map<String, List<String>> fixedTimetable = generateFixedTimetable(violations);
-            result.put("fixedTimetable", fixedTimetable);
+        try {
+            // Get all timetable entries
+            List<TimetableEntry> entries = getAllEntries();
+            
+            if (entries.isEmpty()) {
+                violations.add("No timetable entries found to validate");
+                result.put("isValid", false);
+                result.put("violations", violations);
+                return result;
+            }
+
+            // Check for faculty conflicts (same faculty teaching different subjects at same time)
+            violations.addAll(checkFacultyConflicts(entries));
+
+            // Check for room conflicts (multiple classes in same room at same time)
+            violations.addAll(checkRoomConflicts(entries));
+
+            // Check faculty preferences
+            violations.addAll(checkFacultyPreferences(entries));
+
+            // Timetable is valid if there are no violations
+            result.put("isValid", violations.isEmpty());
+            result.put("violations", violations);
+            
+            return result;
+        } catch (Exception e) {
+            violations.add("Validation error: " + e.getMessage());
+            result.put("isValid", false);
+            result.put("violations", violations);
+            return result;
         }
-
-        return result;
     }
 
-    private Map<String, List<String>> generateFixedTimetable(List<String> violations) {
-        Map<String, List<String>> daySlotMatrix = buildDaySlotMatrix();
-
-        redistributeFreePeriods(daySlotMatrix);
-        balanceSubjectHours(daySlotMatrix);
-        fixConsecutiveSessions(daySlotMatrix);
-
-        return daySlotMatrix;
-    }
-
-    private void fixConsecutiveSessions(Map<String, List<String>> timetable) {
-        for (String day : getDays()) {
-            List<String> slots = timetable.get(day);
-            for (int i = 0; i < slots.size() - MAX_CONSECUTIVE_SESSIONS; i++) {
-                String subject = slots.get(i);
-                if (subject.equals(FREE_PERIOD) || subject.equals(SHORT_BREAK) ||
-                        subject.equals(LONG_BREAK) || subject.contains("Lab")) {
-                    continue;
-                }
-
-                boolean consecutive = true;
-                for (int j = 1; j <= MAX_CONSECUTIVE_SESSIONS; j++) {
-                    if (i + j >= slots.size() || !slots.get(i + j).equals(subject)) {
-                        consecutive = false;
-                        break;
+    private List<String> checkFacultyConflicts(List<TimetableEntry> entries) {
+        List<String> conflicts = new ArrayList<>();
+        // Group entries by day and time slot
+        Map<String, Map<String, List<TimetableEntry>>> dayTimeSlotMap = new HashMap<>();
+        
+        for (TimetableEntry entry : entries) {
+            dayTimeSlotMap
+                .computeIfAbsent(entry.getDay(), k -> new HashMap<>())
+                .computeIfAbsent(String.valueOf(entry.getSessionNumber()), k -> new ArrayList<>())
+                .add(entry);
+        }
+        
+        // Check for conflicts
+        for (Map<String, List<TimetableEntry>> timeSlotMap : dayTimeSlotMap.values()) {
+            for (List<TimetableEntry> timeSlotEntries : timeSlotMap.values()) {
+                if (timeSlotEntries.size() > 1) {
+                    // Check if same faculty is assigned to multiple subjects
+                    Set<String> facultiesInTimeSlot = new HashSet<>();
+                    for (TimetableEntry entry : timeSlotEntries) {
+                        if (!facultiesInTimeSlot.add(entry.getSubject())) {
+                            conflicts.add("Faculty conflict: " + entry.getSubject() + 
+                                " has multiple sessions at the same time on " + entry.getDay());
+                        }
                     }
                 }
+            }
+        }
+        return conflicts;
+    }
 
-                if (consecutive) {
-                    slots.set(i + MAX_CONSECUTIVE_SESSIONS, FREE_PERIOD);
+    private List<String> checkRoomConflicts(List<TimetableEntry> entries) {
+        // Implement room conflict checking logic
+        return new ArrayList<>();
+    }
+
+    private List<String> checkFacultyPreferences(List<TimetableEntry> entries) {
+        List<String> violations = new ArrayList<>();
+        
+        for (TimetableEntry entry : entries) {
+            Optional<FacultyPreference> preference = facultyPreferenceRepository
+                .findByFaculty(entry.getSubject());
+                
+            if (preference.isPresent()) {
+                FacultyPreference pref = preference.get();
+                if (!pref.getPreferredDays().contains(entry.getDay())) {
+                    violations.add("Faculty preference violation: " + entry.getSubject() + 
+                        " is scheduled on " + entry.getDay() + " which is not preferred");
+                }
+            }
+        }
+        
+        return violations;
+    }
+
+    public Map<String, Object> validateSchedule() {
+        Map<String, Object> result = new HashMap<>();
+        List<String> violations = new ArrayList<>();
+
+        try {
+            // Fetch all entries and subjects
+            List<TimetableEntry> entries = timetableRepository.findAll();
+            List<Subject> subjects = subjectRepository.findAll();
+
+            // Create maps to track hours
+            Map<String, Integer> theoryHours = new HashMap<>();
+            Map<String, Integer> labHours = new HashMap<>();
+
+            // Count actual hours for each subject
+            for (TimetableEntry entry : entries) {
+                String subjectCode = entry.getSubject();
+                if (entry.isLabSession()) {
+                    labHours.merge(subjectCode, 1, Integer::sum);
+                } else {
+                    theoryHours.merge(subjectCode, 1, Integer::sum);
+                }
+            }
+
+            // Check each subject's requirements
+            for (Subject subject : subjects) {
+                String code = subject.getCode();
+                int actualTheoryHours = theoryHours.getOrDefault(code, 0);
+                int actualLabHours = labHours.getOrDefault(code, 0);
+                
+                // Check theory hours
+                if (actualTheoryHours != subject.getHoursPerWeek()) {
+                    violations.add(String.format(
+                        "Subject %s - %s has %d theory hours, should have %d",
+                        subject.getFaculty(),
+                        subject.getName(),
+                        actualTheoryHours,
+                        subject.getHoursPerWeek()
+                    ));
+                }
+
+                // Check lab hours if required
+                if (subject.isLabRequired() && actualLabHours < 3) {
+                    violations.add(String.format(
+                        "Subject %s - %s has %d lab hours, should have 3",
+                        subject.getFaculty(),
+                        subject.getName(),
+                        actualLabHours
+                    ));
+                }
+            }
+
+            // Check faculty conflicts
+            checkFacultyConflicts(entries, violations);
+
+            // Check free periods
+            int totalPeriods = entries.size();
+            int expectedFreePeriods = 9;
+            int actualFreePeriods = (5 * 8) - totalPeriods; // 5 days * 8 slots
+            
+            if (actualFreePeriods != expectedFreePeriods) {
+                violations.add(String.format(
+                    "Total free periods is %d, should be %d",
+                    actualFreePeriods,
+                    expectedFreePeriods
+                ));
+            }
+
+            result.put("isValid", violations.isEmpty());
+            result.put("violations", violations);
+            return result;
+
+        } catch (Exception e) {
+            violations.add("Validation error: " + e.getMessage());
+            result.put("isValid", false);
+            result.put("violations", violations);
+            return result;
+        }
+    }
+
+    private void checkFacultyConflicts(List<TimetableEntry> entries, List<String> violations) {
+        // Group entries by day and session
+        Map<String, Map<Integer, List<TimetableEntry>>> daySessionMap = new HashMap<>();
+        
+        for (TimetableEntry entry : entries) {
+            daySessionMap
+                .computeIfAbsent(entry.getDay(), k -> new HashMap<>())
+                .computeIfAbsent(entry.getSessionNumber(), k -> new ArrayList<>())
+                .add(entry);
+        }
+
+        // Check for conflicts
+        for (Map<Integer, List<TimetableEntry>> sessionMap : daySessionMap.values()) {
+            for (List<TimetableEntry> sessionEntries : sessionMap.values()) {
+                if (sessionEntries.size() > 1) {
+                    violations.add(String.format(
+                        "Multiple sessions scheduled at the same time on %s session %d",
+                        sessionEntries.get(0).getDay(),
+                        sessionEntries.get(0).getSessionNumber()
+                    ));
                 }
             }
         }
     }
+
+    private int calculateTotalFreePeriods(List<TimetableEntry> entries) {
+        int totalSlots = 5 * 8; // 5 days * 8 slots per day
+        return totalSlots - entries.size();
+    }
+
+
+    // Removed unused validateScheduleOld() method
+
+    // Removed unused method generateFixedTimetable(List<String>)
+
 
     private static class SlotPosition {
         String day;

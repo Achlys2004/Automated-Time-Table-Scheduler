@@ -3,6 +3,7 @@ package com.university.scheduler.controller;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 import java.util.Map;
 import com.university.scheduler.model.FacultyPreference;
 import com.university.scheduler.repository.FacultyPreferenceRepository;
@@ -65,6 +66,19 @@ public class FacultyPreferenceController {
                 "message", "Faculty preferences retrieved successfully",
                 "data", null  // Replace with actual preferences
             ));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                "status", "error",
+                "message", "Failed to retrieve faculty preferences: " + e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/preferences")
+    public ResponseEntity<?> getAllPreferences() {
+        try {
+            List<FacultyPreference> preferences = facultyPreferenceRepository.findAll();
+            return ResponseEntity.ok().body(preferences);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
                 "status", "error",

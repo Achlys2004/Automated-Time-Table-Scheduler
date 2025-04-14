@@ -85,17 +85,29 @@ def main_app():
     if page == "Timetable Management":
         st.title("Timetable Management")
         
-        # Dashboard metrics
+        # Dashboard metrics with real-time updates
         col1, col2, col3 = st.columns(3)
+        
         with col1:
+            # Get fresh data for total subjects
             total_subjects = len(get("/api/subjects").json())
             st.metric("Total Subjects", total_subjects)
+        
         with col2:
-            total_faculty = len(set(s['faculty'] for s in get("/api/subjects").json()))
+            # Get fresh data for faculty count
+            subjects_data = get("/api/subjects").json()
+            total_faculty = len(set(s['faculty'] for s in subjects_data))
             st.metric("Total Faculty", total_faculty)
+        
         with col3:
-            total_preferences = len(get("/api/faculty/preferences").json())
-            st.metric("Faculty Preferences Set", total_preferences)
+            # Get fresh data for faculty preferences
+            preferences_response = get("/api/faculty/preferences")
+            if preferences_response.status_code == 200:
+                preferences_data = preferences_response.json()
+                total_preferences = len(preferences_data) if preferences_data else 0
+                st.metric("Faculty Preferences Set", total_preferences)
+            else:
+                st.metric("Faculty Preferences Set", 0)
         
         # Get inputs
         department = st.text_input("Department")

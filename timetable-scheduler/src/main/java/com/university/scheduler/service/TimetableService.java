@@ -1114,10 +1114,6 @@ public class TimetableService {
         }
     }
 
-    private int calculateTotalFreePeriods(List<TimetableEntry> entries) {
-        int totalSlots = 5 * 8; // 5 days * 8 slots per day
-        return totalSlots - entries.size();
-    }
 
 
     // Removed unused validateScheduleOld() method

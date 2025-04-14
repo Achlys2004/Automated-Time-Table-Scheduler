@@ -67,3 +67,19 @@ WHERE id IN (SELECT id FROM (
 ) AS temp);
 
 SET SQL_SAFE_UPDATES = 0;
+
+
+SELECT * FROM subjects;
+
+-- Clear existing data
+DELETE FROM timetable_entry;
+DELETE FROM subjects;
+
+-- Insert balanced test data
+INSERT INTO subjects (id, name, alternate_faculty, available, code, department, faculty, hours_per_week, lab_required) 
+VALUES
+(1, 'Database Systems', 'Dr. Davis', TRUE, 'CS601', 'Computer Science', 'Dr. Smith', 4, TRUE),
+(2, 'Computer Networks', NULL, TRUE, 'CS602', 'Computer Science', 'Dr. Johnson', 4, TRUE),
+(3, 'Software Engineering', NULL, TRUE, 'CS603', 'Computer Science', 'Dr. Williams', 4, FALSE),
+(4, 'Operating Systems', 'Dr. Miller', TRUE, 'CS604', 'Computer Science', 'Dr. Brown', 4, TRUE),
+(5, 'Machine Learning', NULL, TRUE, 'CS605', 'Computer Science', 'Dr. Miller', 4, FALSE);

@@ -38,14 +38,69 @@ The Automated Timetable Scheduler is a sophisticated solution for the complex pr
 - **Timetable Validation**: Comprehensive validation against all constraints
 - **Automatic Constraint Violation Fixing**: Ability to fix invalid timetables
 
-## System Architecture
+## Design Patterns and Architecture
 
-The system follows a standard Spring Boot architecture with:
+The Automated Timetable Scheduler implements several design patterns within its N-tier architecture:
 
-1. **Controller Layer**: REST API endpoints for timetable and subject operations
-2. **Service Layer**: Business logic including the scheduling algorithm
-3. **Repository Layer**: Data access interfaces for JPA/Hibernate
-4. **Model Layer**: JPA entity classes and request/response models
+### Architectural Structure
+
+The project follows a standard **N-tier Architecture** with:
+
+1. **Presentation Layer** - Streamlit frontend (app.py)
+2. **Controller Layer** - REST API endpoints (SubjectController, TimetableController)
+3. **Service Layer** - Business logic (TimetableService)
+4. **Repository Layer** - Data access (SubjectRepository, TimetableRepository)
+5. **Model Layer** - Domain entities (Subject, TimetableEntry, FacultyPreference)
+
+### Design Patterns
+
+#### Core Patterns
+
+1. **Repository Pattern**
+   - Used in `SubjectRepository`, `TimetableRepository`, and `FacultyPreferenceRepository`
+   - Abstracts data access operations and decouples business logic from database interactions
+
+2. **Dependency Injection**
+   - Spring's DI is used throughout the application
+   - Components are injected via constructors (e.g., in controllers and services)
+
+3. **MVC (Model-View-Controller)**
+   - Models: Domain entities like Subject, TimetableEntry
+   - Views: Streamlit frontend
+   - Controllers: REST endpoints handling requests and responses
+
+4. **Strategy Pattern**
+   - Visible in the scheduling algorithm implementation
+   - Different strategies for scheduling theory classes vs. lab sessions
+
+5. **Facade Pattern**
+   - `TimetableService` acts as a facade, hiding complex scheduling algorithm details
+   - Provides a simplified interface to generate and validate timetables
+
+#### Additional Patterns
+
+6. **Singleton Pattern**
+   - Spring beans are singletons by default
+   - Services and repositories maintain single instances
+
+7. **Factory Method Pattern**
+   - Used when creating new timetable entries and day-slot matrices
+
+8. **Command Pattern**
+   - REST API endpoints implement command-like behavior
+   - Each endpoint performs specific operations on the system
+
+9. **Data Transfer Object (DTO)**
+   - `TimetableRequest` serves as a DTO for transferring data between layers
+
+### Algorithm Design
+
+The project implements a **weight-based scheduling algorithm** with **constraint satisfaction** techniques that:
+
+- Prioritizes subjects based on multiple weighted factors
+- Implements backtracking when constraints are violated
+- Redistributes free periods according to constraints
+- Validates and fixes timetables against predefined rules
 
 ## Installation & Setup
 

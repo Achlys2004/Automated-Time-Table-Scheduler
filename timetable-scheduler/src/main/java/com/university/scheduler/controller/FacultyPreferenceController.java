@@ -59,12 +59,10 @@ public class FacultyPreferenceController {
     @GetMapping("/preferences/{faculty}")
     public ResponseEntity<?> getFacultyPreferences(@PathVariable String faculty) {
         try {
-            // TODO: Add logic to retrieve preferences from database
-            
             return ResponseEntity.ok().body(Map.of(
                 "status", "success",
                 "message", "Faculty preferences retrieved successfully",
-                "data", null  // Replace with actual preferences
+                "data", null 
             ));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
